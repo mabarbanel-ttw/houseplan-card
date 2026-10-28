@@ -286,7 +286,7 @@ import {
   currentLabs, hashSpace, noteLabsRender, subscribeLabs, type LabsSnapshot,
 } from './labs';
 import {
-  ISO_FLOOR_EDGE_HEIGHT, ISO_WALL_HEIGHT, projectedFrame, clientToScenePoint, unprojectFloorPoint,
+  ISO_FLOOR_EDGE_HEIGHT, ISO_WALL_HEIGHT, projectedFrame,
 } from './iso-projection';
 import type { IsoDecorationLayers } from './iso-openings';
 import type { IsoOverlayPlacement } from './iso-overlays';
@@ -307,7 +307,7 @@ import { stairList, stairOutline, type Stair } from './stairs';
 import {
   focusChildren, focusParent, focusPath, focusRegionBounds, focusRegionFromView, focusRegionList,
   nestedAway, parseReveal, revealShown, type RevealContext,
-  inflateToContext, insetCameraTarget, newFocusRegionId, NO_INSETS, regionRoomId, resolveFocusTap,
+  clientToPlanNorm, inflateToContext, insetCameraTarget, newFocusRegionId, NO_INSETS, regionRoomId, resolveFocusTap,
   sameFocusNode, stairLanding,
   type FocusNode, type FocusRegion, type StageInsets,
 } from './fork-focus';
@@ -5861,8 +5861,8 @@ export class HouseplanCard extends LitElement {
     // Fork §6: a ghost ("not in HA") marker does nothing unless an action is set.
     const ghostIdle = actionDevice.marker?.presentation === 'ghost'
       && (actionDevice.marker?.tap_action == null || actionDevice.marker?.tap_action === '');
-    const action = ghostIdle ? 'none' : projectedTapAction(
-      actionDevice.tapAction, actionDevice.primary?.split('.')[0],
+    const action = projectedTapAction(
+      ghostIdle ? 'none' : actionDevice.tapAction, actionDevice.primary?.split('.')[0],
     );
     // An explicit no-op still owns the click: propagation was stopped and the
     // current marker was resolved, but no capability, feedback or UI path runs.
@@ -6708,13 +6708,7 @@ export class HouseplanCard extends LitElement {
     if (!stage || !view) return null;
     const rect = stage.getBoundingClientRect();
     if (!(rect.width > 0) || !(rect.height > 0)) return null;
-    try {
-      const scene = clientToScenePoint([clientX, clientY], rect, view);
-      const plan = this._effectiveProjection() === 'iso' ? unprojectFloorPoint(scene) : scene;
-      return [plan[0] / NORM_W, plan[1] / NORM_W];
-    } catch {
-      return null;
-    }
+    return clientToPlanNorm([clientX, clientY], rect, view, this._effectiveProjection() === 'iso', NORM_W);
   }
 
   /** One step out: faceplate → rack → room → whole level. */

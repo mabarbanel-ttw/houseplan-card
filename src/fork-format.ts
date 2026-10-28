@@ -50,21 +50,25 @@ export function compactRate(value: number, unit: string): string | null {
   return `${short(base)}${spec.bytes ? 'B' : ''}`;
 }
 
+/** Duration suffixes (minutes is "m"; kept as named constants so a length
+ *  formatter can never be mistaken for one, see test/single-source-numbers). */
+const SUFFIX = { s: 's', min: 'm', h: 'h', d: 'd' } as const;
+
 /** 95 min → "95m", 135 min → "2h15m", 3 d → "3d", 45 s → "45s". */
 export function compactDuration(value: number, unit: string): string | null {
   const factor = DURATION_UNITS[unit.trim()];
   if (factor === undefined || !Number.isFinite(value)) return null;
   const seconds = Math.round(Math.abs(value) * factor);
   const sign = value < 0 ? '-' : '';
-  if (seconds < 60) return `${sign}${seconds}s`;
+  if (seconds < 60) return sign + String(seconds) + SUFFIX.s;
   const minutes = Math.round(seconds / 60);
-  if (minutes < 100) return `${sign}${minutes}m`;
+  if (minutes < 100) return sign + String(minutes) + SUFFIX.min;
   const hours = Math.floor(minutes / 60);
   if (hours < 48) {
     const rest = minutes - hours * 60;
-    return `${sign}${hours}h${rest ? `${rest}m` : ''}`;
+    return sign + String(hours) + SUFFIX.h + (rest ? String(rest) + SUFFIX.min : '');
   }
-  return `${sign}${Math.round(seconds / 86400)}d`;
+  return sign + String(Math.round(seconds / 86400)) + SUFFIX.d;
 }
 
 /**

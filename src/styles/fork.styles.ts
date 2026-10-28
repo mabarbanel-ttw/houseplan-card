@@ -77,7 +77,7 @@ export const forkStyles = css`
     opacity: 0.38;
     transition: opacity 180ms ease, transform 180ms ease, fill 180ms ease;
   }
-  .fork-level:hover svg { opacity: 0.7; }
+  :host([data-pointer-hover]) .fork-level:hover svg { opacity: 0.7; }
   .fork-level:focus-visible { outline: 2px solid var(--fork-accent); outline-offset: -2px; }
   .fork-level.current svg {
     opacity: 1;
@@ -281,7 +281,7 @@ export const forkStyles = css`
     touch-action: manipulation;
   }
   .fork-dock-btn ha-icon { --mdc-icon-size: 24px; line-height: 1; }
-  .fork-dock-btn:hover { background: color-mix(in srgb, var(--fork-ink) 16%, transparent); }
+  :host([data-pointer-hover]) .fork-dock-btn:hover { background: color-mix(in srgb, var(--fork-ink) 16%, transparent); }
   .fork-dock-btn:active, .fork-dock-btn.pressed { transform: scale(0.9); }
   .fork-dock-btn.pressed {
     background: color-mix(in srgb, var(--fork-accent) 40%, transparent);

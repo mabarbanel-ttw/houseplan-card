@@ -9,6 +9,7 @@
  * `partitions[].a/b` and stairs). `x/y` is the top-left corner, `w/h` the
  * positive size. Render units are the normalized values multiplied by NORM_W.
  */
+import { clientToScenePoint, unprojectFloorPoint } from './iso-projection';
 
 export interface FocusRegion {
   id: string;
@@ -443,4 +444,21 @@ export function revealShown(
   const parent = focusParent({ kind: 'region', id: region.id }, ctx.regions);
   if (!parent || ctx.path.has(`${parent.kind}:${parent.id}`)) return true;
   return regionFraction(region, ctx) >= 0.4;
+}
+
+/** Client point → normalized plan point; 2.5D taps land on the floor plane. */
+export function clientToPlanNorm(
+  client: readonly [number, number],
+  rect: { left: number; top: number; width: number; height: number },
+  view: { x: number; y: number; w: number; h: number },
+  iso: boolean,
+  normW: number,
+): [number, number] | null {
+  try {
+    const scene = clientToScenePoint([client[0], client[1]], rect, view);
+    const plan = iso ? unprojectFloorPoint(scene) : scene;
+    return [plan[0] / normW, plan[1] / normW];
+  } catch {
+    return null;
+  }
 }

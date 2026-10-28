@@ -6,6 +6,7 @@ import { cardStyles, baseStyles, planStyles, devicesStyles, chromeStyles, dialog
   from '../test-build/styles.js';
 import { CARD_DIALOG_FORM_KIT, formKitCss } from '../test-build/styles/form-kit.styles.js';
 import { isoTilesStyles } from '../test-build/styles/iso-tiles.styles.js';
+import { forkStyles } from '../test-build/styles/fork.styles.js';
 
 const FILES = ['base', 'plan', 'devices', 'chrome', 'dialogs'];
 const sourceOf = (name) =>
@@ -49,7 +50,8 @@ test('issue 266 the aggregator is exactly the five surface files in the cascade 
   // диалога. Пятёрка и её порядок неприкосновенны.
   // #649: the 2.5D tile sheet follows the five and is scoped to the 2.5D View
   // only (next test), so no accepted Flat frame can change through it.
-  assert.deepEqual(cardStyles, [baseStyles, planStyles, devicesStyles, chromeStyles, dialogsStyles, isoTilesStyles],
+  // Fork (FORK.md): fork chrome styles are appended last.
+  assert.deepEqual(cardStyles, [baseStyles, planStyles, devicesStyles, chromeStyles, dialogsStyles, isoTilesStyles, forkStyles],
     'the cascade order is a contract — the golden set was accepted against it');
 });
 

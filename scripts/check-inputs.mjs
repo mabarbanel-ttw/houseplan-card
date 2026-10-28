@@ -77,6 +77,7 @@ export const NOT_AN_INPUT = [
   // в job frontend, так что фикстуры ha-dialog #505 стали её входом.
   ['demo/screencast_visual_continuity.mjs', 'ручной скринкаст'],
   ['demo/gen_icons.mjs', 'генератор иконок демо-страницы, запускается вручную; результат в demo/srv/assets (класс D)'],
+  ['demo/fork/**', 'fork (FORK.md): screenshot/verification run of the single-pane features, run by hand'],
   ['demo/downgrade_open_passage.mjs', 'ручной инструмент миграции фикстур'],
   ['scripts/dev/**', 'локальные утилиты разработчика'],
   ['scripts/install-hooks.mjs', 'установка git-хуков при npm ci'],
