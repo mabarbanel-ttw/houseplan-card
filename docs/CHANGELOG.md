@@ -18,6 +18,8 @@
 - Touch callout: new marker tap action `callout` opens an in-place popover
   with name, state, value-badge value, a switch for switch/light bindings and
   HA more-info. (FORK.md §4)
+- Scene dock: `scene_dock` card option paints round icon buttons over the
+  map that run scripts/scenes; fits keep the plan clear of it. (FORK.md §5)
 - Touch View no longer shows a room's "open HA area" link: it is a page
   change and a hit target that covered stairs at phone zoom. (FORK.md §7)
 

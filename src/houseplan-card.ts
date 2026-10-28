@@ -6822,7 +6822,11 @@ export class HouseplanCard extends LitElement {
   private _chromeInsets(): StageInsets {
     if (this._mode !== 'view') return NO_INSETS;
     const right = this._levelIndicatorOn ? 72 : 0;
-    return right ? { ...NO_INSETS, right } : NO_INSETS;
+    // §5: the scene dock owns a band along its edge.
+    const dock = this._fork.sceneDock.length ? 80 : 0;
+    const top = dock && this._fork.sceneDockCorner.startsWith('top') ? dock : 0;
+    const bottom = dock && this._fork.sceneDockCorner.startsWith('bottom') ? dock : 0;
+    return right || top || bottom ? { ...NO_INSETS, right, top, bottom } : NO_INSETS;
   }
 
   /** Room-fit camera target, kept clear of the on-map chrome (FORK.md §2). */
@@ -6919,6 +6923,16 @@ export class HouseplanCard extends LitElement {
     if (this._space === id) this._landOnSpace(id, null, null);
   }
 
+  /** Fork §5: run a dock script/scene (script.turn_on / scene.turn_on). */
+  private _runDockItem(item: SceneDockItem): void {
+    const service = sceneDockService(item.entity);
+    if (!service || !this.hass) return;
+    this._forkDockPressed = item.entity;
+    window.setTimeout(() => { if (this._forkDockPressed === item.entity) this._forkDockPressed = null; }, 650);
+    this.hass.callService(service.domain, service.service, { entity_id: item.entity })
+      .catch((e: any) => this._showToast(this._t('toast.error', { err: this._errText(e) })));
+  }
+
   /** Every fork on-map control, painted above the plan inside the stage. */
   private _renderForkChrome(): TemplateResult | typeof nothing {
     if (this._booting || this._mode !== 'view') return nothing;
@@ -6932,6 +6946,10 @@ export class HouseplanCard extends LitElement {
         )
       : nothing}
       ${renderStepOut(depth > 0, depth, this._t('fork.step_out'), () => this._stepOut())}
+      ${renderSceneDock(this._fork.sceneDock, this._fork.sceneDockCorner,
+        (entity) => this.hass?.states?.[entity]?.state === 'on',
+        (entity) => !!this.hass?.states?.[entity] && this.hass.states[entity].state !== 'unavailable',
+        (item) => this._runDockItem(item), this._forkDockPressed, this._t('fork.scenes'))}
       ${editing ? html`<div class="fork-focus-edit" data-scene-surface data-hp="fork-focus-edit">
         <button type="button" class="fork-round" data-hp="fork-focus-add"
           aria-label=${this._t('fork.focus_add')} title=${this._t('fork.focus_add')} @click=${(e: Event) => { e.stopPropagation(); this._addFocusRegionFromView(); }}>

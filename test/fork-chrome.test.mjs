@@ -32,3 +32,25 @@ test('fork §4 callout toggles only switch/light bindings; projection keeps call
   assert.equal(projectedTapAction('callout', 'sensor'), 'callout');
   assert.equal(projectedTapAction(null, 'light'), 'toggle', 'upstream default unchanged');
 });
+
+test('fork §5 scene dock: runnable script/scene entries only, bounded, deduplicated', () => {
+  const opts = forkCardOptions({ scene_dock: [
+    { entity: 'script.night_study', icon: 'mdi:book-open-variant', name: 'Study' },
+    'scene.all_off',
+    { entity: 'script.night_study' },          // duplicate
+    { entity: 'light.lamp' },                  // not runnable
+    { entity: 'script.bad id' },               // malformed
+    { entity: 'script.x', icon: '<svg>' },     // bad icon → default
+  ], scene_dock_corner: 'top-right' });
+  assert.deepEqual(opts.sceneDock, [
+    { entity: 'script.night_study', icon: 'mdi:book-open-variant', name: 'Study' },
+    { entity: 'scene.all_off', icon: 'mdi:palette', name: '' },
+    { entity: 'script.x', icon: 'mdi:play', name: '' },
+  ]);
+  assert.equal(opts.sceneDockCorner, 'top-right');
+  assert.equal(forkCardOptions({ scene_dock_corner: 'middle' }).sceneDockCorner, 'bottom-left');
+  assert.equal(forkCardOptions({ scene_dock: Array.from({ length: 20 }, (_, i) => `script.s${i}`) }).sceneDock.length, 12);
+  assert.deepEqual(sceneDockService('script.x'), { domain: 'script', service: 'turn_on' });
+  assert.deepEqual(sceneDockService('scene.y'), { domain: 'scene', service: 'turn_on' });
+  assert.equal(sceneDockService('switch.z'), null);
+});

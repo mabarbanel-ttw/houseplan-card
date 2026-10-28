@@ -229,3 +229,37 @@ frontend `TAP_ACTIONS`):
 `custom_components/houseplan/support_wire_schema.py`,
 `scripts/config-schema.json`, `test/fork-chrome.test.mjs`,
 `test/logic.test.mjs`, `tests_backend/test_fork_single_pane.py`.
+
+## 5. On-map scene dock
+
+**What.** Card option `scene_dock` paints a small floating dock of round icon
+buttons over the map (frosted capsule, default bottom-left corner). A tap runs
+the entry: `script.turn_on` for a script, `scene.turn_on` for a scene. The
+pressed button flashes the accent; a script that is currently running glows;
+an entity missing in HA is drawn dashed/ghosted and disabled. No text: the
+optional `name` is only the desktop hover title / accessible name.
+
+The dock respects the safe areas, never covers the level indicator (it lives
+in a corner, the indicator on the right edge's middle; the top-left corner is
+shifted right of the step-out control), and the zoom badge moves above a
+bottom-left dock. Every fit keeps the plan clear of the dock's band (§2). Dock
+presses never pan, fly or dismiss anything on the plan.
+
+**Config keys** (Lovelace card YAML; up to 12 entries, only `script.*`/`scene.*`
+entity ids are accepted, duplicates dropped; a bare string is also accepted):
+
+```yaml
+scene_dock:
+  - entity: script.night_study
+    icon: mdi:book-open-variant
+    name: Study                 # optional, hover title only
+  - entity: script.late_night_chill
+    icon: mdi:weather-night
+  - scene.all_off               # icon defaults: scene → mdi:palette, script → mdi:play
+scene_dock_corner: bottom-left  # bottom-left (default) | bottom-right | top-left | top-right
+```
+
+**Files.** `src/fork-chrome.ts` (`renderSceneDock`, `sceneDockService`, dock
+normalization in `forkCardOptions`), `src/houseplan-card.ts` (`_runDockItem`,
+dock band in `_chromeInsets`), `src/styles/fork.styles.ts`, `src/types.ts`,
+`test/fork-chrome.test.mjs`.

@@ -426,12 +426,59 @@ async function scenarioCallout(page, vp) {
   check(`${tag}: other actions unchanged (info card)`, await page.evaluate(() => !!window.__card._infoCard), true);
 }
 
+async function scenarioDock(page, vp) {
+  const tag = `${vp.key}.dock`;
+  const dock = await page.evaluate(() => {
+    const root = window.__card.renderRoot;
+    const el = root.querySelector('[data-hp="fork-dock"]');
+    const stage = root.querySelector('.stage').getBoundingClientRect();
+    const r = el?.getBoundingClientRect();
+    const levels = root.querySelector('[data-hp="fork-levels"]')?.getBoundingClientRect();
+    return el ? {
+      items: [...el.querySelectorAll('[data-hp="fork-dock-item"]')].map((b) => ({
+        entity: b.dataset.entity, title: b.title, text: b.textContent.trim(),
+      })),
+      bottomLeft: r.left - stage.left < 40 && stage.bottom - r.bottom < 40,
+      overlapsLevels: !!levels && !(r.right <= levels.left || r.left >= levels.right
+        || r.bottom <= levels.top || r.top >= levels.bottom),
+    } : null;
+  });
+  check(`${tag}: dock renders configured items`, dock?.items.map((i) => i.entity),
+    ['script.night_study', 'script.late_night_chill', 'scene.all_off']);
+  check(`${tag}: dock buttons carry no text, name only as hover title`, dock?.items.every((i) => i.text === '' && !!i.title), true);
+  check(`${tag}: default corner bottom-left`, dock?.bottomLeft, true);
+  check(`${tag}: dock never covers the level indicator`, dock?.overlapsLevels, false);
+  const clear = await page.evaluate(() => {
+    const c = window.__card;
+    const [x, y, w, h] = c._baseVb();
+    const v = c._view;
+    const root = c.renderRoot;
+    const stage = root.querySelector('.stage').getBoundingClientRect();
+    const dockR = root.querySelector('[data-hp="fork-dock"]').getBoundingClientRect();
+    const ppu = stage.width / v.w;
+    return stage.top + (y + h - v.y) * ppu <= dockR.top + 1;
+  });
+  check(`${tag}: fit-all keeps the plan above the dock`, clear, true);
+  await shot(page, vp, '05-dock-0');
+  const n = await page.evaluate(() => window.__serviceCalls.length);
+  await tap(page, vp, await centerOf(page, '[data-hp="fork-dock-item"][data-entity="script.night_study"]'));
+  await sleep(60);
+  await shot(page, vp, '05-dock-1-pressed');
+  await tap(page, vp, await centerOf(page, '[data-hp="fork-dock-item"][data-entity="scene.all_off"]'));
+  await settle(page, 100);
+  const calls = await page.evaluate((k) => window.__serviceCalls.slice(k).map((x) => [x[0], x[1], x[2]?.entity_id]), n);
+  check(`${tag}: dock runs script.turn_on / scene.turn_on`, calls,
+    [['script', 'turn_on', 'script.night_study'], ['scene', 'turn_on', 'scene.all_off']]);
+  check(`${tag}: dock tap does not move the camera or fly`, (await state(page)).focus, null);
+}
+
 const RUN = [
   ['stairs', scenarioStairs],
   ['levels', scenarioLevels],
   ['nested', scenarioNested],
   ['authoring', scenarioAuthoring],
   ['callout', scenarioCallout],
+  ['dock', scenarioDock],
 ];
 
 for (const vp of VIEWPORTS) {

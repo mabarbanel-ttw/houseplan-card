@@ -189,6 +189,58 @@ export const forkStyles = css`
   }
   .fork-round ha-icon { --mdc-icon-size: 22px; line-height: 1; }
 
+  /* ---- §5 scene dock: round icon buttons floating in a corner */
+  .fork-dock {
+    position: absolute;
+    z-index: 14;
+    display: flex;
+    gap: 10px;
+    padding: 6px;
+    border-radius: 34px;
+    background: var(--fork-glass);
+    border: 1px solid var(--fork-edge);
+    box-shadow: var(--fork-shadow);
+    backdrop-filter: blur(10px) saturate(1.2);
+    -webkit-backdrop-filter: blur(10px) saturate(1.2);
+    animation: fork-pop 240ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  .fork-dock.bottom-left { left: max(var(--fork-inset), env(safe-area-inset-left, 0px)); bottom: max(var(--fork-inset), env(safe-area-inset-bottom, 0px)); }
+  .fork-dock.bottom-right { right: calc(max(var(--fork-inset), env(safe-area-inset-right, 0px)) + 4px); bottom: max(var(--fork-inset), env(safe-area-inset-bottom, 0px)); }
+  /* top corners leave room for the step-out control (top-left) */
+  .fork-dock.top-left { left: calc(max(var(--fork-inset), env(safe-area-inset-left, 0px)) + 64px); top: max(var(--fork-inset), env(safe-area-inset-top, 0px)); }
+  .fork-dock.top-right { right: max(var(--fork-inset), env(safe-area-inset-right, 0px)); top: max(var(--fork-inset), env(safe-area-inset-top, 0px)); }
+  .fork-dock-btn {
+    width: 48px;
+    height: 48px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid transparent;
+    background: color-mix(in srgb, var(--fork-ink) 8%, transparent);
+    color: var(--fork-ink);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: transform 140ms ease, background 160ms ease, box-shadow 160ms ease;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .fork-dock-btn ha-icon { --mdc-icon-size: 24px; line-height: 1; }
+  .fork-dock-btn:hover { background: color-mix(in srgb, var(--fork-ink) 16%, transparent); }
+  .fork-dock-btn:active, .fork-dock-btn.pressed { transform: scale(0.9); }
+  .fork-dock-btn.pressed {
+    background: color-mix(in srgb, var(--fork-accent) 40%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--fork-accent) 35%, transparent);
+  }
+  .fork-dock-btn.on {
+    color: var(--fork-accent);
+    border-color: color-mix(in srgb, var(--fork-accent) 60%, transparent);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--fork-accent) 45%, transparent);
+  }
+  .fork-dock-btn.missing { opacity: 0.35; border-style: dashed; border-color: var(--fork-edge); cursor: default; }
+  .fork-dock-btn:focus-visible { outline: 2px solid var(--fork-accent); outline-offset: 2px; }
+  /* the zoom badge moves above a bottom-left dock instead of under it */
+  .stage:has(.fork-dock.bottom-left) .zoombadge { bottom: calc(var(--sp-4, 12px) + 70px); }
+
   /* ---- §4 touch callout: an in-place popover anchored to the marker */
   .fork-callout-layer {
     position: absolute;
