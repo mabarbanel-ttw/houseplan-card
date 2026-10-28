@@ -161,6 +161,32 @@ export function resolveFocusTap(
   }
 }
 
+/** The current node and every ancestor: the regions/room you are "inside". */
+export function focusPath(node: FocusNode, regions: readonly FocusRegion[]): Set<string> {
+  const path = new Set<string>();
+  let cursor = node;
+  while (cursor && !path.has(`${cursor.kind}:${cursor.id}`)) {
+    path.add(`${cursor.kind}:${cursor.id}`);
+    cursor = focusParent(cursor, regions);
+  }
+  return path;
+}
+
+/**
+ * True when `point` lies inside a region you have not flown into yet (a region
+ * that is neither the current node nor one of its ancestors). Markers there
+ * are detail of a deeper level: they stay painted but do not take the tap, so
+ * the tap reaches the region and flies in. Once you are inside the region
+ * they are ordinary tappable markers again.
+ */
+export function nestedAway(
+  point: readonly [number, number],
+  path: ReadonlySet<string>,
+  regions: readonly FocusRegion[],
+): boolean {
+  return regions.some((region) => !path.has(`region:${region.id}`) && regionContains(region, point));
+}
+
 /** Render-unit rectangle of a region. */
 export function focusRegionBounds(
   region: FocusRegion, normW: number,

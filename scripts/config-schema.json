@@ -915,6 +915,62 @@
       "opaque": "<function _finite>",
       "required": true
     },
+    "config.spaces[].focus_regions": {
+      "required": false
+    },
+    "config.spaces[].focus_regions[]": {
+      "allowExtra": true
+    },
+    "config.spaces[].focus_regions[].h": {
+      "max": 5000.0,
+      "min": 1e-07,
+      "opaque": "<function _finite>",
+      "required": true
+    },
+    "config.spaces[].focus_regions[].id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "required": true,
+      "type": "str"
+    },
+    "config.spaces[].focus_regions[].name": {
+      "maxLength": 64,
+      "nullable": true,
+      "required": false,
+      "type": "str"
+    },
+    "config.spaces[].focus_regions[].parent_id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "nullable": true,
+      "required": false,
+      "type": "str"
+    },
+    "config.spaces[].focus_regions[].room_id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "nullable": true,
+      "required": false,
+      "type": "str"
+    },
+    "config.spaces[].focus_regions[].w": {
+      "max": 5000.0,
+      "min": 1e-07,
+      "opaque": "<function _finite>",
+      "required": true
+    },
+    "config.spaces[].focus_regions[].x": {
+      "max": 5000.0,
+      "min": -5000.0,
+      "opaque": "<function _finite>",
+      "required": true
+    },
+    "config.spaces[].focus_regions[].y": {
+      "max": 5000.0,
+      "min": -5000.0,
+      "opaque": "<function _finite>",
+      "required": true
+    },
     "config.spaces[].id": {
       "opaque": "Match('^[a-z0-9_-]{1,64}$', msg=None)",
       "required": true,

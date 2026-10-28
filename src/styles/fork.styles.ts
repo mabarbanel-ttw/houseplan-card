@@ -100,12 +100,105 @@ export const forkStyles = css`
     .stage.mode-view .rlgo.rlarea { display: none; }
   }
 
+  /* ---- §3 nested fly-in: step-out control, target hints, authoring */
+  .fork-stepout {
+    position: absolute;
+    z-index: 14;
+    top: max(var(--fork-inset), env(safe-area-inset-top, 0px));
+    left: max(var(--fork-inset), env(safe-area-inset-left, 0px));
+    width: 52px;
+    height: 52px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid var(--fork-edge);
+    background: var(--fork-glass);
+    color: var(--fork-ink);
+    box-shadow: var(--fork-shadow);
+    backdrop-filter: blur(10px) saturate(1.2);
+    -webkit-backdrop-filter: blur(10px) saturate(1.2);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    animation: fork-pop 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  .fork-stepout ha-icon { --mdc-icon-size: 24px; line-height: 1; margin-top: -6px; }
+  .fork-stepout:active { transform: scale(0.94); }
+  .fork-stepout:focus-visible { outline: 2px solid var(--fork-accent); outline-offset: 2px; }
+  .fork-depth {
+    position: absolute;
+    bottom: 9px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 3px;
+  }
+  .fork-depth i {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--fork-accent);
+    opacity: 0.45;
+  }
+  .fork-depth i:last-child { opacity: 1; box-shadow: 0 0 5px var(--fork-accent); }
+
+  .fork-focus-hint {
+    fill: color-mix(in srgb, var(--fork-accent) 7%, transparent);
+    stroke: var(--fork-accent);
+    stroke-width: 1.6px;
+    stroke-dasharray: 6 5;
+    vector-effect: non-scaling-stroke;
+    opacity: 0.75;
+    animation: fork-hint 1.6s ease-out 1;
+  }
+  @keyframes fork-hint {
+    0% { opacity: 0; }
+    35% { opacity: 1; }
+    100% { opacity: 0.75; }
+  }
+
+  /* Markers inside a fly-in target you have not entered: painted, not tappable. */
+  .stage.mode-view .dev.fork-nested,
+  .stage.mode-view .dev.fork-nested *,
+  .stage.mode-view .dev.fork-nested::before {
+    pointer-events: none !important;
+  }
+
+  .fork-focus-edit {
+    position: absolute;
+    z-index: 14;
+    top: calc(max(var(--fork-inset), env(safe-area-inset-top, 0px)) + 62px);
+    left: max(var(--fork-inset), env(safe-area-inset-left, 0px));
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .fork-round {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px dashed color-mix(in srgb, var(--fork-accent) 70%, transparent);
+    background: var(--fork-glass);
+    color: var(--fork-accent);
+    box-shadow: var(--fork-shadow);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+  }
+  .fork-round ha-icon { --mdc-icon-size: 22px; line-height: 1; }
+
+  @keyframes fork-pop {
+    from { opacity: 0; transform: scale(0.8); }
+    to { opacity: 1; transform: scale(1); }
+  }
   @keyframes fork-rise {
     from { opacity: 0; transform: translateY(calc(-50% + 8px)); }
     to { opacity: 1; transform: translateY(-50%); }
   }
   @media (prefers-reduced-motion: reduce) {
-    .fork-levels, .fork-dock, .fork-stepout, .fork-callout { animation: none !important; }
+    .fork-levels, .fork-dock, .fork-stepout, .fork-callout, .fork-focus-hint { animation: none !important; }
     .fork-level svg { transition: none; }
   }
 `;

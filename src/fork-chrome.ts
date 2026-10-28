@@ -98,10 +98,11 @@ const slab = svg`<path d="M5 3 H27 L23 11 H1 Z"></path>`;
 export function renderLevelIndicator(
   glyphs: readonly LevelGlyph[],
   onPick: (id: string) => void,
+  label = 'Levels',
 ): TemplateResult | typeof nothing {
   if (glyphs.length < 2) return nothing;
   return html`<nav class="fork-levels" data-hp="fork-levels" data-scene-surface
-    aria-label="Levels">
+    aria-label=${label}>
     ${repeat(glyphs, (glyph) => glyph.id, (glyph) => html`<button type="button"
         class="fork-level ${glyph.current ? 'current' : ''}" data-hp="fork-level" data-id=${glyph.id}
         aria-label=${glyph.title} title=${glyph.title}
@@ -135,10 +136,11 @@ export function renderSceneDock(
   available: (entity: string) => boolean,
   onRun: (item: SceneDockItem) => void,
   pressed: string | null,
+  label = 'Scenes',
 ): TemplateResult | typeof nothing {
   if (!items.length) return nothing;
   return html`<div class="fork-dock ${corner}" data-hp="fork-dock" data-scene-surface role="toolbar"
-    aria-label="Scenes">
+    aria-label=${label}>
     ${repeat(items, (item) => item.entity, (item) => {
       const ok = available(item.entity);
       return html`<button type="button"

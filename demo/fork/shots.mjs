@@ -240,9 +240,129 @@ async function scenarioLevels(page, vp) {
   await settle(page);
 }
 
+async function scenarioNested(page, vp) {
+  const tag = `${vp.key}.nested`;
+  const hints = () => page.evaluate(() => [...window.__card.renderRoot
+    .querySelectorAll('[data-hp="fork-focus-hint"]')].map((n) => n.dataset.id));
+  await shot(page, vp, '03-nested-0-level');
+  check(`${tag}: no step-out at the level`, !!(await centerOf(page, '[data-hp="fork-stepout"]')), false);
+  // 1. living room (clean tap on an empty spot, after the double-tap window)
+  await tap(page, vp, await screenOfPlan(page, 0.12, 0.42));
+  await sleep(420);
+  await settle(page, 200);
+  let s = await state(page);
+  check(`${tag}: tap on room fits the room`, s.focus, { kind: 'room', id: 'living' });
+  check(`${tag}: rack target hinted inside the room`, await hints(page), ['rack']);
+  await shot(page, vp, '03-nested-1-room');
+  const roomZoom = s.zoom;
+  // 2. rack — tap ON the Hue bridge marker inside the rack: markers of a
+  // target you have not entered are painted but inert, the rack takes it.
+  const hueInert = await page.evaluate(() => window.__card.renderRoot
+    .querySelector('[data-hp="device"][data-id="m-hue"]')?.classList.contains('fork-nested'));
+  check(`${tag}: rack markers inert before entering the rack`, hueInert, true);
+  await tap(page, vp, await centerOf(page, '[data-hp="device"][data-id="m-hue"]'));
+  await sleep(420);
+  await settle(page, 200);
+  s = await state(page);
+  check(`${tag}: tap inside rack flies to rack`, s.focus, { kind: 'region', id: 'rack' });
+  check(`${tag}: rack is a deeper zoom level`, s.zoom > roomZoom * 1.5, true);
+  check(`${tag}: faceplate target hinted inside the rack`, await hints(page), ['udm']);
+  await shot(page, vp, '03-nested-2-rack');
+  const rackZoom = s.zoom;
+  // 3. UDM faceplate — tap ON a port marker (inert until the faceplate is entered)
+  check(`${tag}: rack markers tappable inside the rack`, await page.evaluate(() => window.__card.renderRoot
+    .querySelector('[data-hp="device"][data-id="m-hue"]')?.classList.contains('fork-nested')), false);
+  await tap(page, vp, await centerOf(page, '[data-hp="device"][data-id="m-port-4"]'));
+  await sleep(420);
+  await settle(page, 200);
+  s = await state(page);
+  check(`${tag}: tap inside faceplate flies to faceplate`, s.focus, { kind: 'region', id: 'udm' });
+  check(`${tag}: faceplate is a deeper zoom level`, s.zoom > rackZoom * 1.1, true);
+  await shot(page, vp, '03-nested-3-faceplate');
+  // 4. a marker inside the zoomed faceplate keeps its own tap (never a fly-in)
+  const before = await state(page);
+  const port = await centerOf(page, '[data-hp="device"][data-id="m-port-2"]');
+  check(`${tag}: port marker painted at faceplate zoom`, !!port && port.w >= 12, true);
+  if (port) {
+    await tap(page, vp, port);
+    await sleep(450);
+    await settle(page, 150);
+    const after = await state(page);
+    check(`${tag}: marker tap keeps the faceplate focus`, after.focus, before.focus);
+    check(`${tag}: marker tap keeps the camera`, Math.abs(after.zoom - before.zoom) < 1e-6, true);
+    await shot(page, vp, '03-nested-4-marker-tap');
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.evaluate(() => { window.__card._closeInfoCard?.(); window.__card._callout = null; window.__card.requestUpdate(); });
+    await settle(page, 100);
+  }
+  // 5. step out one level at a time
+  const stepOut = async (expect, name) => {
+    await tap(page, vp, await centerOf(page, '[data-hp="fork-stepout"]'));
+    await settle(page, 250);
+    const now = await state(page);
+    check(`${tag}: step out → ${name}`, now.focus, expect);
+    return now;
+  };
+  await stepOut({ kind: 'region', id: 'rack' }, 'rack');
+  await shot(page, vp, '03-nested-5-back-rack');
+  await stepOut({ kind: 'room', id: 'living' }, 'room');
+  await shot(page, vp, '03-nested-6-back-room');
+  const level = await stepOut(null, 'level');
+  check(`${tag}: step out reaches the whole level`, level.zoom < roomZoom, true);
+  await shot(page, vp, '03-nested-7-back-level');
+  // 6. from the faceplate, double-tap = Fit all (whole level) at once
+  await page.evaluate(() => window.__card._fitRegion('udm'));
+  await settle(page, 200);
+  const p = await screenOfPlan(page, 0.4605, 0.131);
+  await tap(page, vp, p); await sleep(120); await tap(page, vp, p);
+  await settle(page, 300);
+  s = await state(page);
+  check(`${tag}: double-tap at faceplate = Fit all`, s.focus, null);
+}
+
+async function scenarioAuthoring(page, vp) {
+  const tag = `${vp.key}.authoring`;
+  await page.evaluate((options) => window.__card.setConfig({
+    type: 'custom:houseplan-card', title: 'House', icon_size: 3, ...options, focus_edit: true,
+  }), CARD_OPTIONS);
+  await settle(page);
+  await page.evaluate(() => window.__card._fitRoom('living'));
+  await settle(page, 200);
+  // Frame the TV corner by zooming the camera, then save it as a target.
+  await page.evaluate(() => {
+    const c = window.__card;
+    c._applyView(c._zoom * 2.4, 90, 480);
+    c.requestUpdate();
+  });
+  await settle(page, 150);
+  await shot(page, vp, '03-nested-8-author-framed');
+  await tap(page, vp, await centerOf(page, '[data-hp="fork-focus-add"]'));
+  await page.evaluate(() => window.__hpTest.waitForWrites());
+  await settle(page, 150);
+  const saved = await page.evaluate(() => window.__card._serverCfg.spaces
+    .find((s) => s.id === 'main').focus_regions.map((r) => ({ ...r })));
+  const added = saved.find((r) => !['rack', 'udm'].includes(r.id));
+  check(`${tag}: + saves the framed view as a target inside the room`, !!added && added.room_id === 'living', true);
+  check(`${tag}: the new target is the current position`, (await state(page)).focus?.id, added?.id);
+  await shot(page, vp, '03-nested-9-author-saved');
+  await tap(page, vp, await centerOf(page, '[data-hp="fork-focus-remove"]'));
+  await page.evaluate(() => window.__hpTest.waitForWrites());
+  await settle(page, 250);
+  const after = await page.evaluate(() => window.__card._serverCfg.spaces
+    .find((s) => s.id === 'main').focus_regions.map((r) => r.id));
+  check(`${tag}: − removes the current target and steps out`, after, ['rack', 'udm']);
+  check(`${tag}: after removal the room is the position`, (await state(page)).focus, { kind: 'room', id: 'living' });
+  await page.evaluate((options) => window.__card.setConfig({
+    type: 'custom:houseplan-card', title: 'House', icon_size: 3, ...options,
+  }), CARD_OPTIONS);
+  await settle(page);
+}
+
 const RUN = [
   ['stairs', scenarioStairs],
   ['levels', scenarioLevels],
+  ['nested', scenarioNested],
+  ['authoring', scenarioAuthoring],
 ];
 
 for (const vp of VIEWPORTS) {

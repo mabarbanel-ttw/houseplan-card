@@ -1340,5 +1340,13 @@
   "backdrop.keep_original": "Keep the original",
   "backdrop.too_large_title": "Image is too large",
   "backdrop.too_large_body": "This image exceeds what browsers can display ({w}×{h}, limit {limit} px per side). Please reduce it in a desktop editor and upload again.",
-  "backdrop.downscale_failed": "Could not create the reduced copy. The original plan was not changed."
+  "backdrop.downscale_failed": "Could not create the reduced copy. The original plan was not changed.",
+  "fork.step_out": "Back",
+  "fork.levels": "Levels",
+  "fork.scenes": "Scenes",
+  "fork.focus_add": "Add zoom target",
+  "fork.focus_remove": "Remove zoom target",
+  "fork.callout_more": "More",
+  "fork.callout_toggle": "Toggle",
+  "tap.callout": "Callout"
 }

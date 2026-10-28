@@ -286,7 +286,7 @@ import {
   currentLabs, hashSpace, noteLabsRender, subscribeLabs, type LabsSnapshot,
 } from './labs';
 import {
-  ISO_FLOOR_EDGE_HEIGHT, ISO_WALL_HEIGHT, projectedFrame,
+  ISO_FLOOR_EDGE_HEIGHT, ISO_WALL_HEIGHT, projectedFrame, clientToScenePoint, unprojectFloorPoint,
 } from './iso-projection';
 import type { IsoDecorationLayers } from './iso-openings';
 import type { IsoOverlayPlacement } from './iso-overlays';
@@ -305,7 +305,8 @@ import type { DecorShape, DecorStyle } from './editors/decor/types';
 import { StairViewRuntime, type StairViewHostPort } from './stairs-view';
 import { stairList, stairOutline, type Stair } from './stairs';
 import {
-  focusChildren, focusParent, focusRegionBounds, focusRegionFromView, focusRegionList,
+  focusChildren, focusParent, focusPath, focusRegionBounds, focusRegionFromView, focusRegionList,
+  nestedAway,
   inflateToContext, insetCameraTarget, newFocusRegionId, NO_INSETS, regionRoomId, resolveFocusTap,
   sameFocusNode, stairLanding,
   type FocusNode, type FocusRegion, type StageInsets,
@@ -2011,12 +2012,15 @@ export class HouseplanCard extends LitElement {
   private _focusNode: FocusNode = null;
   /** Fork §1: cancels a pending landing when another navigation follows. */
   private _landingToken = 0;
+  /** Fork §3: resize-reapply intent of a fitted focus region (like `_roomFocus`). */
+  private _regionIntent: { spaceId: string; regionId: string } | null = null;
   /** Pointer owner captured from the actually painted event path. */
   private _roomPointer: RoomFitGestureCandidate | null = null;
   private readonly _planTaps = new PlanTapGestureController({
     current: () => ({ spaceId: this._space, enabled: this._doubleFitEnabled }),
     fitAll: () => this._fitAll('double-tap'),
     fitRoom: (roomId) => this._fitRoom(roomId),
+    planTap: (spaceId, x, y, roomId) => this._focusPlanTap(spaceId, x, y, roomId),
   });
   private readonly _deviceHits = new DeviceHitController(); private _deviceHitScrollUnsub?: () => void;
   private _pointers = new Map<number, { x: number; y: number }>();
@@ -6354,6 +6358,7 @@ export class HouseplanCard extends LitElement {
   private _clearRoomFocus(pointer = false): void {
     this._clearPlanTapSequence();
     this._roomFocus = null;
+    this._regionIntent = null;
     if (pointer) this._roomPointer = null;
   }
 
@@ -6410,6 +6415,8 @@ export class HouseplanCard extends LitElement {
       return false;
     }
     this._roomFocus = { spaceId: space.id, roomId };
+    this._regionIntent = null;
+    this._focusNode = { kind: 'room', id: roomId };
     const stage = this._stageEl;
     if (!stage || stage.clientWidth <= 0 || stage.clientHeight <= 0) return true;
     const base = this._baseVb();
@@ -6452,6 +6459,7 @@ export class HouseplanCard extends LitElement {
    *  the main mass, or everything once the far-objects hint has been used. */
   private _fitAll(reason: 'fit' | 'home' | 'double-tap' = 'fit'): void {
     this._clearRoomFocus();
+    this._focusNode = null;
     this._showFar = true;
     this._frame = null;
     this.requestUpdate();
@@ -6466,7 +6474,9 @@ export class HouseplanCard extends LitElement {
    * target/clamp maths and the one camera transition controller; like room
    * fit it never writes the per-space zoom preference.
    */
-  private _flyToBounds(bounds: { x: number; y: number; w: number; h: number }, safeFraction = 0.8): boolean {
+  private _flyToBounds(
+    bounds: { x: number; y: number; w: number; h: number }, safeFraction = 0.8, animate = true,
+  ): boolean {
     if (this._mode !== 'view') return false;
     const stage = this._stageEl;
     if (!stage || stage.clientWidth <= 0 || stage.clientHeight <= 0) return false;
@@ -6477,9 +6487,187 @@ export class HouseplanCard extends LitElement {
     const current = this._cameraState();
     const clamp = roomFitClampFrame(baseFit, current.viewBox, target.viewBox, bounds);
     target.viewBox = this._clampView(target.viewBox, clamp);
+    if (!animate) {
+      this._cancelCameraTransition(false);
+      if (!sameCameraState(current, target)) {
+        this._zoom = target.zoom;
+        this._view = { ...target.viewBox };
+        this.requestUpdate();
+      }
+      return true;
+    }
     this._prepareCameraCommand();
     this._startCameraTransition(target, clamp, 'room', CAMERA_FIT_MS);
     return true;
+  }
+
+  // ---- fork §3: nested fly-in targets ---------------------------------------
+
+  /** Valid focus regions of the current space (read boundary, never rewrites). */
+  private get _focusRegions(): FocusRegion[] {
+    return focusRegionList(this._curSpaceCfg?.focus_regions);
+  }
+
+  /** Fly to one focus region; it becomes the current fly-in position. */
+  private _fitRegion(regionId: string, animate = true): boolean {
+    if (this._mode !== 'view') return false;
+    this._clearPlanTapSequence();
+    const region = this._focusRegions.find((item) => item.id === regionId);
+    if (!region) { this._regionIntent = null; return false; }
+    const bounds = this._planRectBounds(focusRegionBounds(region, NORM_W));
+    if (!bounds) return false;
+    this._roomFocus = null;
+    this._regionIntent = { spaceId: this._space, regionId };
+    this._focusNode = { kind: 'region', id: regionId };
+    this._flyToBounds(bounds, 0.8, animate);
+    this.requestUpdate();
+    return true;
+  }
+
+  /**
+   * Delayed clean plan tap (after the double-tap window). A focus region that
+   * is a child of the current position — or of one of its ancestors — wins
+   * over the ordinary room fit; markers never reach here (they own the tap).
+   */
+  private _focusPlanTap(spaceId: string, clientX: number, clientY: number, roomId: string | null): boolean {
+    if (spaceId !== this._space || this._mode !== 'view') return false;
+    const regions = this._focusRegions;
+    if (!regions.length) return false;
+    const point = this._clientToPlanNorm(clientX, clientY);
+    if (!point) return false;
+    // A tap on another room than the one we are inside starts from that room.
+    let node = this._focusNode;
+    if (roomId && node) {
+      const owner = node.kind === 'room' ? node.id
+        : regionRoomId(regions.find((item) => item.id === node!.id) ?? regions[0], regions);
+      if (owner && owner !== roomId) node = null;
+    }
+    const hit = resolveFocusTap(point, node, regions);
+    if (!hit) return false;
+    if (this._focusNode?.kind === 'region' && this._focusNode.id === hit.id) return true;
+    return this._fitRegion(hit.id);
+  }
+
+  /** Client point → normalized plan point (floor plane in 2.5D). */
+  private _clientToPlanNorm(clientX: number, clientY: number): [number, number] | null {
+    const stage = this._stageEl;
+    const view = this._view;
+    if (!stage || !view) return null;
+    const rect = stage.getBoundingClientRect();
+    if (!(rect.width > 0) || !(rect.height > 0)) return null;
+    try {
+      const scene = clientToScenePoint([clientX, clientY], rect, view);
+      const plan = this._effectiveProjection() === 'iso' ? unprojectFloorPoint(scene) : scene;
+      return [plan[0] / NORM_W, plan[1] / NORM_W];
+    } catch {
+      return null;
+    }
+  }
+
+  /** One step out: faceplate → rack → room → whole level. */
+  private _stepOut(): void {
+    const parent = focusParent(this._focusNode, this._focusRegions);
+    if (!parent) {
+      this._fitAll('fit');
+      return;
+    }
+    if (parent.kind === 'room') {
+      if (!this._fitRoom(parent.id)) this._fitAll('fit');
+      return;
+    }
+    if (!this._fitRegion(parent.id)) this._fitAll('fit');
+  }
+
+  /** Depth of the current fly-in position: 0 level, 1 room, 2+ regions. */
+  private _focusDepth(): number {
+    const regions = this._focusRegions;
+    let depth = 0;
+    let node = this._focusNode;
+    const seen = new Set<string>();
+    while (node && !seen.has(`${node.kind}:${node.id}`)) {
+      seen.add(`${node.kind}:${node.id}`);
+      depth += 1;
+      node = focusParent(node, regions);
+    }
+    return depth;
+  }
+
+  /** Per-render memo of the focus path (fork §3). */
+  private _forkPathMemo: { node: FocusNode; cfg: unknown; regions: FocusRegion[]; path: Set<string> } | null = null;
+
+  /**
+   * Fork §3: a marker inside a fly-in target you have not entered yet does not
+   * take the tap (the region does). Opt out with `focus_nested_markers: tappable`.
+   */
+  private _forkNestedAway(pos: { x: number; y: number }): boolean {
+    if (this._mode !== 'view' || (this._config as any)?.focus_nested_markers === 'tappable') return false;
+    const cfg = this._curSpaceCfg?.focus_regions;
+    if (!Array.isArray(cfg) || !cfg.length) return false;
+    let memo = this._forkPathMemo;
+    if (!memo || memo.cfg !== cfg || !sameFocusNode(memo.node, this._focusNode)) {
+      const regions = focusRegionList(cfg);
+      memo = { node: this._focusNode, cfg, regions, path: focusPath(this._focusNode, regions) };
+      this._forkPathMemo = memo;
+    }
+    return nestedAway([pos.x / NORM_W, pos.y / NORM_W], memo.path, memo.regions);
+  }
+
+  /** Subtle dashed outlines of the regions one tap away from here. */
+  private _renderFocusHints(): TemplateResult | typeof nothing {
+    if (this._mode !== 'view') return nothing;
+    const regions = this._focusRegions;
+    if (!regions.length) return nothing;
+    const children = focusChildren(this._focusNode, regions);
+    if (!children.length) return nothing;
+    return svg`<g class="fork-focus-hints" pointer-events="none" aria-hidden="true">${children.map((region) => {
+      const b = focusRegionBounds(region, NORM_W);
+      const r = Math.min(b.w, b.h) * 0.08;
+      return svg`<rect class="fork-focus-hint" data-hp="fork-focus-hint" data-id=${region.id}
+        x=${b.x} y=${b.y} width=${b.w} height=${b.h} rx=${r} ry=${r}></rect>`;
+    })}</g>` as unknown as TemplateResult;
+  }
+
+  /** Writers with `focus_edit: true`: frame the camera, then save it as a target. */
+  private _addFocusRegionFromView(): void {
+    const cfg = this._serverCfg;
+    const space = cfg?.spaces.find((item: any) => item.id === this._space) as any;
+    const view = this._view;
+    if (!cfg || !space || !view || !this._canEdit) return;
+    const existing = Array.isArray(space.focus_regions) ? space.focus_regions : [];
+    const region = focusRegionFromView(view, NORM_W, this._focusNode, newFocusRegionId(existing));
+    if (!region) return;
+    space.focus_regions = [...existing, region];
+    this._saveConfig();
+    this._focusNode = { kind: 'region', id: region.id };
+    this._regionIntent = { spaceId: this._space, regionId: region.id };
+    this.requestUpdate();
+  }
+
+  /** Writers with `focus_edit: true`: delete the region you are inside, step out. */
+  private _removeCurrentFocusRegion(): void {
+    const node = this._focusNode;
+    const cfg = this._serverCfg;
+    const space = cfg?.spaces.find((item: any) => item.id === this._space) as any;
+    if (!node || node.kind !== 'region' || !space || !this._canEdit) return;
+    const parent = focusParent(node, this._focusRegions);
+    const list = Array.isArray(space.focus_regions) ? space.focus_regions : [];
+    // Children of the removed region move up to its parent (nothing is lost).
+    const removed = list.find((item: any) => item?.id === node.id);
+    space.focus_regions = list
+      .filter((item: any) => item?.id !== node.id)
+      .map((item: any) => item?.parent_id === node.id
+        ? { ...item, parent_id: removed?.parent_id ?? null, room_id: removed?.room_id ?? item.room_id ?? null }
+        : item);
+    this._saveConfig();
+    this._focusNode = parent;
+    this._regionIntent = null;
+    this._stepOutTo(parent);
+  }
+
+  private _stepOutTo(node: FocusNode): void {
+    if (!node) this._fitAll('fit');
+    else if (node.kind === 'room') this._fitRoom(node.id);
+    else this._fitRegion(node.id);
   }
 
   /** Fork §2/§5: stage pixels covered by on-map chrome; fits keep content clear of them. */
@@ -6586,12 +6774,24 @@ export class HouseplanCard extends LitElement {
   /** Every fork on-map control, painted above the plan inside the stage. */
   private _renderForkChrome(): TemplateResult | typeof nothing {
     if (this._booting || this._mode !== 'view') return nothing;
+    const depth = this._focusDepth();
+    const editing = this._canEdit && (this._config as any)?.focus_edit === true;
     return html`${this._levelIndicatorOn
       ? renderLevelIndicator(
           levelGlyphs(this._model, this._space, this._fork.levelNavOrder),
           (id) => this._flyToLevel(id),
+          this._t('fork.levels'),
         )
-      : nothing}`;
+      : nothing}
+      ${renderStepOut(depth > 0, depth, this._t('fork.step_out'), () => this._stepOut())}
+      ${editing ? html`<div class="fork-focus-edit" data-scene-surface data-hp="fork-focus-edit">
+        <button type="button" class="fork-round" data-hp="fork-focus-add"
+          aria-label=${this._t('fork.focus_add')} title=${this._t('fork.focus_add')} @click=${(e: Event) => { e.stopPropagation(); this._addFocusRegionFromView(); }}>
+          <ha-icon icon="mdi:vector-square-plus"></ha-icon></button>
+        ${this._focusNode?.kind === 'region' ? html`<button type="button" class="fork-round" data-hp="fork-focus-remove"
+          aria-label=${this._t('fork.focus_remove')} title=${this._t('fork.focus_remove')} @click=${(e: Event) => { e.stopPropagation(); this._removeCurrentFocusRegion(); }}>
+          <ha-icon icon="mdi:vector-square-remove"></ha-icon></button>` : nothing}
+      </div>` : nothing}`;
   }
 
   /** Unobtrusive inline hint: some objects stand an order of magnitude away
@@ -6663,9 +6863,11 @@ export class HouseplanCard extends LitElement {
     return [v.x + (sx / w) * v.w, v.y + (sy / h) * v.h];
   }
 
-  /** Zoom limits (docs/CANVAS.md §5): 8x in as before, 3x out — beyond that
-   *  the screen is empty plane, which is not information. */
-  private static readonly ZOOM_MAX = 8;
+  /** Zoom limits (docs/CANVAS.md §5): 3x out — beyond that the screen is
+   *  empty plane, which is not information. Fork (FORK.md §3): 32x in, not 8x,
+   *  so a nested fly-in can reach an equipment faceplate inside a rack inside
+   *  a room (a 44 cm UDM on a 12 m plan needs ~21x to fill the stage). */
+  private static readonly ZOOM_MAX = 32;
   private static readonly ZOOM_MIN = MIN_ZOOM;
 
   /**
@@ -6840,6 +7042,8 @@ export class HouseplanCard extends LitElement {
       this._lastValidStageSize = size;
       if (this._roomFocus?.spaceId === this._space) {
         this._fitRoom(this._roomFocus.roomId, false);
+      } else if (this._regionIntent?.spaceId === this._space) {
+        this._fitRegion(this._regionIntent.regionId, false);
       } else if (!this._view) this._applyView(this._zoom);
       return;
     }
@@ -6867,6 +7071,10 @@ export class HouseplanCard extends LitElement {
       }
       if (this._roomFocus?.spaceId === this._space) {
         this._fitRoom(this._roomFocus.roomId, false);
+        return;
+      }
+      if (this._regionIntent?.spaceId === this._space) {
+        this._fitRegion(this._regionIntent.regionId, false);
         return;
       }
       this._applyView(
@@ -11377,6 +11585,7 @@ export class HouseplanCard extends LitElement {
             ${disp.hideDecor && this._mode !== 'decor' ? nothing : this._renderDecorLayer(undefined, view)}
             ${this._mode === 'plan' && this._editorRuntime
               ? this._editorRuntime.stairs.renderLayer() : this._stairsView.renderLayer()}
+            ${this._renderFocusHints()}
             ${glowLayerVisible ? this._renderGlowLayer(space, disp, view) : nothing}
             ${glowLayerVisible ? this._ledRt(space)?.renderLedFieldFor(this as never, space, disp.glow) : nothing}
             ${this._renderSunRays(space)}
@@ -12159,7 +12368,7 @@ export class HouseplanCard extends LitElement {
       role=${interactive ? 'button' : nothing}
       tabindex=${interactive ? '0' : nothing}
       aria-label=${deviceAriaLabel}
-      class="dev ${deviceThemeClass(this._renderPlanHass)} ${presentation.classes.join(' ')} ${this._selId === d.id ? 'sel' : ''} ${d.virtual ? 'virtual' : ''} ${d.hidden ? 'ghost' : ''} ${presentation.haDisabled ? 'ha-disabled' : ''} ${presentation.valueText != null ? 'valonly' : ''} ${floorLight}"
+      class="dev ${this._forkNestedAway(pos) ? 'fork-nested' : ''} ${deviceThemeClass(this._renderPlanHass)} ${presentation.classes.join(' ')} ${this._selId === d.id ? 'sel' : ''} ${d.virtual ? 'virtual' : ''} ${d.hidden ? 'ghost' : ''} ${presentation.haDisabled ? 'ha-disabled' : ''} ${presentation.valueText != null ? 'valonly' : ''} ${floorLight}"
       style="${st.join(';')}"
       @click=${(e: MouseEvent) => this._clickDevice(e, d)}
       @keydown=${(e: KeyboardEvent) => this._keyDevice(e, d)}

@@ -4,8 +4,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   focusChildren, focusParent, focusRegionFromView, focusRegionList, inflateToContext,
-  insetCameraTarget, isFocusRegion, NO_INSETS, regionRoomId, resolveFocusTap, sameFocusNode,
-  stairLanding,
+  focusPath, insetCameraTarget, isFocusRegion, nestedAway, NO_INSETS, regionRoomId,
+  resolveFocusTap, sameFocusNode, stairLanding,
 } from '../test-build/fork-focus.js';
 import { roomFitCameraTarget } from '../test-build/room-fit.js';
 
@@ -46,4 +46,81 @@ test('fork §2 chrome-aware camera equals room fit without insets and clears the
   assert.ok(Math.abs((screenLeft + screenRight) / 2 - 400) < 1e-6, 'centred in the free 800 px');
   assert.ok(Math.abs(right.viewBox.w / right.viewBox.h - 1000 / 800) < 1e-9, 'stage aspect kept');
   assert.equal(insetCameraTarget({ ...input, bounds: { x: 0, y: 0, w: 0, h: 1 }, insets: NO_INSETS }), null);
+});
+
+const REGIONS = [
+  { id: 'rack', x: 0.4, y: 0.1, w: 0.1, h: 0.12, room_id: 'living' },
+  { id: 'udm', x: 0.41, y: 0.12, w: 0.08, h: 0.02, parent_id: 'rack' },
+  { id: 'switch', x: 0.41, y: 0.16, w: 0.08, h: 0.02, parent_id: 'rack' },
+  { id: 'yard', x: 2, y: 2, w: 0.5, h: 0.5 },
+];
+
+test('fork §3 focus regions: read boundary keeps valid unique records and detaches broken parents', () => {
+  const list = focusRegionList([
+    ...REGIONS,
+    { id: 'rack', x: 0, y: 0, w: 1, h: 1 },               // duplicate id: first wins
+    { id: 'bad', x: 0, y: 0, w: 0, h: 1 },                 // zero size
+    { id: 'orphan', x: 0, y: 0, w: 1, h: 1, parent_id: 'gone' },
+    { id: 'a', x: 0, y: 0, w: 1, h: 1, parent_id: 'b' },
+    { id: 'b', x: 0, y: 0, w: 1, h: 1, parent_id: 'a' },  // cycle
+    'junk', null,
+  ]);
+  assert.deepEqual(list.map((r) => r.id), ['rack', 'udm', 'switch', 'yard', 'orphan', 'a', 'b']);
+  assert.equal(list.find((r) => r.id === 'orphan').parent_id, null);
+  assert.ok(list.filter((r) => r.id === 'a' || r.id === 'b').every((r) => r.parent_id === null));
+  assert.equal(isFocusRegion({ id: 'x', x: 1, y: 1, w: 1, h: 1, room_id: 7 }), false);
+  assert.deepEqual(focusRegionList('nope'), []);
+});
+
+test('fork §3 hierarchy: children, parent chain and owning room', () => {
+  assert.deepEqual(focusChildren(null, REGIONS).map((r) => r.id), ['yard']);
+  assert.deepEqual(focusChildren({ kind: 'room', id: 'living' }, REGIONS).map((r) => r.id), ['rack']);
+  assert.deepEqual(focusChildren({ kind: 'region', id: 'rack' }, REGIONS).map((r) => r.id), ['udm', 'switch']);
+  assert.deepEqual(focusParent({ kind: 'region', id: 'udm' }, REGIONS), { kind: 'region', id: 'rack' });
+  assert.deepEqual(focusParent({ kind: 'region', id: 'rack' }, REGIONS), { kind: 'room', id: 'living' });
+  assert.equal(focusParent({ kind: 'room', id: 'living' }, REGIONS), null);
+  assert.equal(focusParent({ kind: 'region', id: 'yard' }, REGIONS), null);
+  assert.equal(regionRoomId(REGIONS[1], REGIONS), 'living');
+  assert.ok(sameFocusNode({ kind: 'room', id: 'a' }, { kind: 'room', id: 'a' }));
+  assert.ok(!sameFocusNode({ kind: 'room', id: 'a' }, { kind: 'region', id: 'a' }));
+});
+
+test('fork §3 tap resolution: step by step in, siblings and surroundings step across/out', () => {
+  const living = { kind: 'room', id: 'living' };
+  const rack = { kind: 'region', id: 'rack' };
+  const udm = { kind: 'region', id: 'udm' };
+  // From the whole level a room-level region is not reachable directly.
+  assert.equal(resolveFocusTap([0.45, 0.13], null, REGIONS), null);
+  assert.equal(resolveFocusTap([2.2, 2.2], null, REGIONS)?.id, 'yard');
+  // Room → rack → faceplate.
+  assert.equal(resolveFocusTap([0.45, 0.13], living, REGIONS)?.id, 'rack');
+  assert.equal(resolveFocusTap([0.45, 0.13], rack, REGIONS)?.id, 'udm');
+  // Sibling inside the same rack.
+  assert.equal(resolveFocusTap([0.45, 0.17], udm, REGIONS)?.id, 'switch');
+  // Rack surroundings from the faceplate → the rack itself.
+  assert.equal(resolveFocusTap([0.405, 0.2], udm, REGIONS)?.id, 'rack');
+  // Outside everything → no region (caller keeps room/background behaviour).
+  assert.equal(resolveFocusTap([0.1, 0.5], udm, REGIONS), null);
+  assert.equal(resolveFocusTap([Number.NaN, 0], udm, REGIONS), null);
+});
+
+test('fork §3 markers inside a region you have not entered do not take the tap', () => {
+  const at = (node) => focusPath(node, REGIONS);
+  const port = [0.45, 0.13];
+  assert.equal(nestedAway(port, at(null), REGIONS), true);
+  assert.equal(nestedAway(port, at({ kind: 'room', id: 'living' }), REGIONS), true);
+  assert.equal(nestedAway(port, at({ kind: 'region', id: 'rack' }), REGIONS), true, 'still inside the unentered faceplate');
+  assert.equal(nestedAway(port, at({ kind: 'region', id: 'udm' }), REGIONS), false);
+  assert.equal(nestedAway([0.405, 0.2], at({ kind: 'region', id: 'rack' }), REGIONS), false);
+  assert.equal(nestedAway([0.1, 0.5], at(null), REGIONS), false);
+});
+
+test('fork §3 a framed view becomes a child target of the current position', () => {
+  const view = { x: 400, y: 100, w: 100, h: 50 };
+  assert.deepEqual(focusRegionFromView(view, 1000, { kind: 'region', id: 'rack' }, 'r1'),
+    { id: 'r1', x: 0.41, y: 0.105, w: 0.08, h: 0.04, parent_id: 'rack' });
+  assert.deepEqual(focusRegionFromView(view, 1000, { kind: 'room', id: 'living' }, 'r2'),
+    { id: 'r2', x: 0.41, y: 0.105, w: 0.08, h: 0.04, room_id: 'living' });
+  assert.deepEqual(focusRegionFromView(view, 1000, null, 'r3'), { id: 'r3', x: 0.41, y: 0.105, w: 0.08, h: 0.04 });
+  assert.equal(focusRegionFromView({ ...view, w: 0 }, 1000, null, 'r4'), null);
 });

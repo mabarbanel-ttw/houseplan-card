@@ -1340,5 +1340,13 @@
   "backdrop.keep_original": "Оставить оригинал",
   "backdrop.too_large_title": "Изображение слишком большое",
   "backdrop.too_large_body": "Изображение превышает возможности браузера ({w}×{h}, предел {limit} px по стороне). Уменьшите его в редакторе на компьютере и загрузите снова.",
-  "backdrop.downscale_failed": "Не удалось создать уменьшенную копию. Текущий план не изменён."
+  "backdrop.downscale_failed": "Не удалось создать уменьшенную копию. Текущий план не изменён.",
+  "fork.step_out": "Назад",
+  "fork.levels": "Этажи",
+  "fork.scenes": "Сцены",
+  "fork.focus_add": "Добавить точку приближения",
+  "fork.focus_remove": "Удалить точку приближения",
+  "fork.callout_more": "Подробнее",
+  "fork.callout_toggle": "Переключить",
+  "tap.callout": "Выноска"
 }

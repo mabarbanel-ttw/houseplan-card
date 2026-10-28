@@ -305,6 +305,12 @@ def _project_plan_only_space(space: dict[str, Any]) -> dict[str, Any]:
             ))
             for stair in space.get("stairs") or []
         ]
+    if "focus_regions" in space:
+        # Fork (FORK.md §3): fly-in targets are plan geometry, not devices.
+        projected["focus_regions"] = [
+            _pick_fields(region, ("id", "name", "x", "y", "w", "h", "parent_id", "room_id"))
+            for region in space.get("focus_regions") or []
+        ]
     return projected
 
 
@@ -1399,6 +1405,10 @@ def build_space_merge(
                     reference_report, "incoming", "opening.host",
                     str(opening.get("id", "?")), old_host_id,
                 )
+    # Fork (FORK.md §3): fly-in targets follow their room through the remap.
+    for region in space.get("focus_regions") or []:
+        if isinstance(region, dict) and region.get("room_id") is not None:
+            region["room_id"] = old_room_ids.get(str(region["room_id"]), region["room_id"])
     # A one-space export cannot carry a trustworthy external floor target.
     # Self-links are invalid too because the imported source gets a new id.
     for stair in space.get("stairs") or []:

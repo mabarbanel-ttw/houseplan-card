@@ -260,6 +260,12 @@ export interface PlanTapGestureActions {
   current(): { spaceId: string; enabled: boolean };
   fitAll(): void;
   fitRoom(roomId: string): void;
+  /**
+   * Fork (FORK.md §3): a clean single plan tap — room or background — after
+   * the double-tap window. Returning true consumes it (a nested fly-in
+   * target was hit); otherwise a room tap falls back to `fitRoom`.
+   */
+  planTap?(spaceId: string, clientX: number, clientY: number, roomId: string | null): boolean;
 }
 
 const browserPlanTapTimers: PlanTapTimerPort = {
@@ -270,7 +276,7 @@ const browserPlanTapTimers: PlanTapTimerPort = {
 /** One owner for the double-fit recognizer and its sole delayed room command. */
 export class PlanTapGestureController {
   private readonly recognizer = new DoubleFitGestureRecognizer();
-  private pending: { spaceId: string; roomId: string } | null = null;
+  private pending: { spaceId: string; roomId: string | null; x: number; y: number } | null = null;
   private timer: unknown;
 
   constructor(
@@ -316,14 +322,18 @@ export class PlanTapGestureController {
     const result = this.recognizer.pointerUp(event, spaceId, enabled, blocked, now);
     if (result.trigger) this.actions.fitAll();
     else if (result.roomId && acceptedRoom === result.roomId) {
-      this.schedule(spaceId, result.roomId);
+      this.schedule(spaceId, result.roomId, event.clientX, event.clientY);
     } else if (acceptedRoom) this.actions.fitRoom(acceptedRoom);
+    else if (result.sequence && !result.roomId && this.actions.planTap) {
+      // Fork §3: a clean background tap may land on a level-level fly-in target.
+      this.schedule(spaceId, null, event.clientX, event.clientY);
+    }
     return acceptedRoom;
   }
 
-  private schedule(spaceId: string, roomId: string): void {
+  private schedule(spaceId: string, roomId: string | null, x: number, y: number): void {
     this.cancelPending();
-    const pending = { spaceId, roomId };
+    const pending = { spaceId, roomId, x, y };
     this.pending = pending;
     this.timer = this.timers.set(() => {
       this.timer = undefined;
@@ -334,7 +344,8 @@ export class PlanTapGestureController {
         this.recognizer.clear();
         return;
       }
-      this.actions.fitRoom(pending.roomId);
+      if (this.actions.planTap?.(pending.spaceId, pending.x, pending.y, pending.roomId)) return;
+      if (pending.roomId) this.actions.fitRoom(pending.roomId);
     }, DOUBLE_FIT_WINDOW_MS);
   }
 }

@@ -3385,3 +3385,34 @@ def test_issue_780_plan_only_export_keeps_geometry_without_device_links(tmp_path
     forged["payload"]["config"]["spaces"][0]["led_strips"][0]["marker"] = "lamp"
     parsed = parse_document(json.dumps(forged).encode())
     assert parsed["payload"]["config"]["spaces"][0]["led_strips"][0]["marker"] is None
+
+
+@pytest.mark.parametrize("kind,plan_only", [("full", False), ("space", False), ("space", True)])
+def test_fork_focus_regions_survive_every_export(tmp_path: Path, kind: str, plan_only: bool) -> None:
+    """Fork (FORK.md §3): fly-in targets are plan geometry in every transfer."""
+    config = _config()
+    regions = [
+        {"id": "rack", "x": 0.4, "y": 0.1, "w": 0.1, "h": 0.12, "room_id": "living"},
+        {"id": "udm", "x": 0.41, "y": 0.12, "w": 0.08, "h": 0.02, "parent_id": "rack", "name": "UDM"},
+    ]
+    config["spaces"][0]["focus_regions"] = copy.deepcopy(regions)
+    document, _ = create_export(SimpleNamespace(instance_id="same"), {"config": config, "rev": 2},
+        {"layout": {}, "rev": 3}, kind=kind, space_id="ground" if kind == "space" else None,
+        plan_only=plan_only, card_version="review", config_root=tmp_path)
+    parsed = parse_document(json.dumps(document).encode())
+    assert parsed["payload"]["config"]["spaces"][0]["focus_regions"] == regions
+
+
+def test_fork_space_import_remaps_focus_region_room(tmp_path: Path) -> None:
+    config = _config()
+    config["spaces"][0]["focus_regions"] = [
+        {"id": "rack", "x": 0.4, "y": 0.1, "w": 0.1, "h": 0.12, "room_id": "living"},
+    ]
+    document, _ = create_export(SimpleNamespace(instance_id="same"), {"config": config, "rev": 2},
+        {"layout": {}, "rev": 3}, kind="space", space_id="ground",
+        card_version="review", config_root=tmp_path)
+    merged, _layout, details = build_space_merge(document, _config(), {}, "skip")
+    space = next(item for item in merged["spaces"] if item["id"] == details["space_id"])
+    room_id = space["rooms"][0]["id"]
+    assert room_id != "living"
+    assert space["focus_regions"][0]["room_id"] == room_id

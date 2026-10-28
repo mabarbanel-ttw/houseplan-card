@@ -1340,5 +1340,13 @@
   "backdrop.keep_original": "Original behalten",
   "backdrop.too_large_title": "Bild ist zu groß",
   "backdrop.too_large_body": "Dieses Bild überschreitet die Anzeigegrenzen des Browsers ({w}×{h}, Limit {limit} px pro Seite). Bitte verkleinern Sie es in einem Desktop-Editor und laden Sie es erneut hoch.",
-  "backdrop.downscale_failed": "Die verkleinerte Kopie konnte nicht erstellt werden. Der aktuelle Plan wurde nicht geändert."
+  "backdrop.downscale_failed": "Die verkleinerte Kopie konnte nicht erstellt werden. Der aktuelle Plan wurde nicht geändert.",
+  "fork.step_out": "Zurück",
+  "fork.levels": "Etagen",
+  "fork.scenes": "Szenen",
+  "fork.focus_add": "Zoomziel hinzufügen",
+  "fork.focus_remove": "Zoomziel entfernen",
+  "fork.callout_more": "Mehr",
+  "fork.callout_toggle": "Umschalten",
+  "tap.callout": "Kurzinfo"
 }

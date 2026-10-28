@@ -62,7 +62,7 @@ export const FORK_CONFIG = {
   markers: [
     // Rack contents (living room).
     { id: 'm-udm', binding: 'entity:sensor.udm_state', name: 'UDM Pro', icon: 'mdi:router-network',
-      space: 'main', room_id: 'living', size: 0.45,
+      space: 'main', room_id: 'living', size: 0.22,
       value_badge: { enabled: true, position: 'bottom',
         source: { kind: 'entity_state', entity_id: 'sensor.udm_wan_speed' } } },
     ...[1, 2, 3, 4, 5, 6].map((n) => ({
@@ -96,13 +96,13 @@ export const FORK_CONFIG = {
 };
 
 export const FORK_LAYOUT = {
-  'm-udm': { s: 'main', x: 0.44, y: 0.139 },
+  'm-udm': { s: 'main', x: 0.473, y: 0.139 },
   'm-port-1': { s: 'main', x: 0.408, y: 0.141 },
-  'm-port-2': { s: 'main', x: 0.4155, y: 0.141 },
-  'm-port-3': { s: 'main', x: 0.423, y: 0.141 },
-  'm-port-4': { s: 'main', x: 0.4555, y: 0.141 },
-  'm-port-5': { s: 'main', x: 0.463, y: 0.141 },
-  'm-port-6': { s: 'main', x: 0.4705, y: 0.141 },
+  'm-port-2': { s: 'main', x: 0.416, y: 0.141 },
+  'm-port-3': { s: 'main', x: 0.424, y: 0.141 },
+  'm-port-4': { s: 'main', x: 0.432, y: 0.141 },
+  'm-port-5': { s: 'main', x: 0.440, y: 0.141 },
+  'm-port-6': { s: 'main', x: 0.448, y: 0.141 },
   'm-poe': { s: 'main', x: 0.44, y: 0.175 },
   'm-hue': { s: 'main', x: 0.418, y: 0.212 },
   'm-ikea': { s: 'main', x: 0.462, y: 0.212 },
@@ -113,16 +113,20 @@ export const FORK_LAYOUT = {
   'm-valve': { s: 'lower', x: 0.8, y: 0.22 },
   // Synthetic demo devices kept off the stairs.
   d_lock: { s: 'main', x: 0.53, y: 0.53 },
+  d_light1: { s: 'main', x: 0.14, y: 0.2 },
+  d_lamp: { s: 'main', x: 0.24, y: 0.3 },
+  d_tv: { s: 'main', x: 0.08, y: 0.5 },
+  d_temp: { s: 'main', x: 0.3, y: 0.2 },
   d_motion: { s: 'main', x: 0.75, y: 0.43 },
 };
 
 /** Entities the fixture adds to the synthetic HA registry/state. */
 export const FORK_ENTITIES = [
   ['sensor.udm_state', 'living_room', 'online', { friendly_name: 'UDM Pro' }],
-  ['sensor.udm_wan_speed', 'living_room', '940', { friendly_name: 'WAN', unit_of_measurement: 'Mbit/s' }],
+  ['sensor.udm_wan_speed', 'living_room', '940', { friendly_name: 'WAN', unit_of_measurement: 'M' }],
   ...[1, 2, 3, 4, 5, 6].map((n) => [
-    `sensor.udm_port_${n}_speed`, 'living_room', n === 3 ? '100' : n === 6 ? '0' : '1000',
-    { friendly_name: `Port ${n}`, unit_of_measurement: 'Mbit/s' },
+    `sensor.udm_port_${n}_speed`, 'living_room', n === 3 ? '0.1' : n === 6 ? '0' : '1',
+    { friendly_name: `Port ${n}`, unit_of_measurement: 'G' },
   ]),
   ['switch.rack_poe', 'living_room', 'on', { friendly_name: 'Rack PoE' }],
   ['light.living_lamp', 'living_room', 'on', { friendly_name: 'Living lamp', brightness: 180 }],

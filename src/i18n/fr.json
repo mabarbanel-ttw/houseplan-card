@@ -1340,5 +1340,13 @@
   "backdrop.keep_original": "Conserver l'original",
   "backdrop.too_large_title": "Image trop grande",
   "backdrop.too_large_body": "Cette image dépasse ce que les navigateurs peuvent afficher ({w}×{h}, limite {limit} px par côté). Réduisez-la dans un éditeur de bureau puis téléversez-la à nouveau.",
-  "backdrop.downscale_failed": "Impossible de créer la copie réduite. Le plan actuel n'a pas été modifié."
+  "backdrop.downscale_failed": "Impossible de créer la copie réduite. Le plan actuel n'a pas été modifié.",
+  "fork.step_out": "Retour",
+  "fork.levels": "Niveaux",
+  "fork.scenes": "Scènes",
+  "fork.focus_add": "Ajouter une cible de zoom",
+  "fork.focus_remove": "Supprimer la cible de zoom",
+  "fork.callout_more": "Plus",
+  "fork.callout_toggle": "Basculer",
+  "tap.callout": "Bulle"
 }

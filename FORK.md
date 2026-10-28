@@ -91,3 +91,98 @@ the building; or keep the upstream ground-first order and set
 `_renderForkChrome`, `_chromeInsets`, `_cameraTargetFor`; room fit and
 `_resetZoom` use the chrome-aware target), `test/fork-chrome.test.mjs`,
 `test/fork-focus.test.mjs`.
+
+## 3. Nested fly-in targets (room → rack → faceplate)
+
+**What.** Each space may carry `focus_regions`: rectangles that are real zoom
+levels below the room. A region belongs to a room (`room_id`) or to another
+region (`parent_id`), so the living room can hold an equipment rack and the
+rack the UDM faceplate. The camera keeps a *fly-in position* — whole level,
+a room, or a region — and:
+
+- a clean tap (same rules as room fit: one primary tap, applied after the
+  350 ms double-tap window; pan, pinch, long press, swipe and cancelled
+  pointers never fly) on a region that is a child of the current position
+  flies into it (rack inside the fitted living room, faceplate inside the
+  fitted rack). Siblings and the surroundings work too: from the faceplate a
+  tap on the switch faceplate next to it flies there, a tap on the rack around
+  it flies back to the rack. A tap on a room outside your position keeps the
+  upstream room fit; a tap outside everything keeps the upstream behaviour;
+- the **step-out control** (round back-arrow button, top-left of the map;
+  dots show the depth) steps out one level at a time: faceplate → rack →
+  living room → whole level. **Fit all** (toolbar or double-tap) goes straight
+  to the whole level;
+- the regions one tap away from where you are get a faint dashed outline, so
+  you can see where you can go deeper; nothing else is drawn, no text;
+- markers inside a region you have **not** entered are painted but do not take
+  the tap — on an iPad/phone their 44 px touch targets would otherwise cover
+  the whole rack and you could never fly into it. As soon as you are inside the
+  region they are ordinary markers again (tap = action, hold = device card), and
+  a tap on a marker never triggers a fly-in. Card option
+  `focus_nested_markers: tappable` restores upstream marker taps everywhere.
+
+The maximum zoom is raised from 8x to 32x so a 44 cm faceplate on a 12 m plan
+can fill the stage (fly-ins clamp to it; wheel/pinch can now also go deeper).
+Fly-ins use the existing camera transition, keep clear of the on-map chrome
+(§2), re-fit atomically on resize like room fit, and never write the
+per-level zoom preference. 2.5D uses the projected rectangle and the floor
+plane for tap hit-testing.
+
+**Authoring.** With card option `focus_edit: true`, a writer sees two extra
+round buttons under the step-out control in View: **+** saves the middle 80 %
+of the current camera as a new region, child of the current position (frame
+the rack with pinch/wheel while the living room is the position, press **+**;
+then frame the faceplate inside the rack, press **+**). **−** deletes the
+region you are in (its child regions move up to its parent) and steps out.
+Regions can also be written by hand in an exported config (JSON below) and
+re-imported. Remove `focus_edit` again for day-to-day use.
+
+**Config keys.**
+
+Persisted, per space (validated by `FOCUS_REGION_SCHEMA` in
+`custom_components/houseplan/validation.py` and `focusRegionList` in
+`src/fork-focus.ts`; additive, no model/store version change, unknown sibling
+fields preserved):
+
+```json
+"focus_regions": [
+  { "id": "rack", "x": 0.395, "y": 0.115, "w": 0.09, "h": 0.12, "room_id": "living" },
+  { "id": "udm", "x": 0.402, "y": 0.128, "w": 0.076, "h": 0.022, "parent_id": "rack", "name": "UDM" }
+]
+```
+
+- `id` string 1–64, unique within the space (required);
+- `x`, `y` top-left corner, `w`, `h` positive size — normalized plan
+  coordinates, both axes divided by the plan width, exactly like `room.poly`
+  (required; |x|,|y| ≤ 5000, 0 < w,h ≤ 5000);
+- `parent_id` (region id) or `room_id` (room id), optional, nullable; neither =
+  a level-level region reachable directly from the whole level; `parent_id`
+  wins when both are set;
+- `name` optional (≤ 64 chars), never painted (UI copy rule);
+- at most 200 per space. A missing parent or a parent cycle is read as "no
+  parent" without rewriting the stored record.
+
+Transfers: full backup/import and space export keep the records; plan-only
+export keeps them (they are plan geometry); a one-space import remaps
+`room_id` through the same room-id map as the rooms.
+
+Lovelace card YAML:
+
+```yaml
+focus_edit: false              # true: show the + / − authoring buttons to writers in View
+focus_nested_markers: inert    # inert (default) | tappable
+```
+
+**Files.** `src/fork-focus.ts` (`FocusRegion`, `focusRegionList`,
+`focusParent`, `focusChildren`, `resolveFocusTap`, `focusPath`, `nestedAway`,
+`focusRegionFromView`), `src/room-fit.ts` (`PlanTapGestureController` offers
+delayed room/background taps to `planTap` before room fit),
+`src/houseplan-card.ts` (`_focusNode`, `_fitRegion`, `_focusPlanTap`,
+`_clientToPlanNorm`, `_stepOut`, `_renderFocusHints`, `_forkNestedAway`,
+`_addFocusRegionFromView`, `_removeCurrentFocusRegion`, resize re-apply,
+`ZOOM_MAX` 32), `src/fork-chrome.ts` (`renderStepOut`),
+`src/styles/fork.styles.ts`, `src/i18n/{en,ru,de,fr}.json` (`fork.*`),
+`custom_components/houseplan/validation.py`,
+`custom_components/houseplan/import_export.py`, `scripts/config-schema.json`
+(regenerated), `test/fork-focus.test.mjs`, `test/room-fit.test.mjs`,
+`tests_backend/test_fork_single_pane.py`, `tests_backend/test_ha_import_export.py`.

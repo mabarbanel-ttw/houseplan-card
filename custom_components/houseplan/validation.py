@@ -1653,6 +1653,37 @@ STAIR_SCHEMA = vol.All(
 )
 
 
+# Fork (FORK.md §3): nested fly-in targets of a space. A rectangle in the
+# space's normalized plan coordinates (x/y = top-left), optionally owned by a
+# room or nested in another region. Purely presentational; bounded and
+# additive, no model/store version change. Mirrors src/fork-focus.ts.
+MAX_FOCUS_REGIONS = 200
+_FOCUS_REF = vol.Any(None, vol.All(str, vol.Length(min=1, max=64)))
+FOCUS_REGION_SCHEMA = vol.Schema(
+    {
+        vol.Required("id"): vol.All(str, vol.Length(min=1, max=64)),
+        vol.Required("x"): _NORM,
+        vol.Required("y"): _NORM,
+        vol.Required("w"): _FURN_SIZE,
+        vol.Required("h"): _FURN_SIZE,
+        vol.Optional("name"): vol.Any(None, vol.All(str, vol.Length(max=64))),
+        vol.Optional("parent_id"): _FOCUS_REF,
+        vol.Optional("room_id"): _FOCUS_REF,
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+
+
+def _unique_focus_regions(value: list) -> list:
+    """Region ids are the parent_id reference identity within a space."""
+    seen: set[str] = set()
+    for item in value:
+        if item["id"] in seen:
+            raise vol.Invalid("focus region ids must be unique within a space")
+        seen.add(item["id"])
+    return value
+
+
 def _wall_endpoints_pair(entry: dict) -> dict:
     """Exact wall endpoints are useful only as a complete a/b pair."""
     if ("a" in entry) != ("b" in entry):
@@ -1892,6 +1923,10 @@ SPACE_SCHEMA = vol.All(vol.Schema(
         vol.Required("rooms"): vol.All([ROOM_SCHEMA], vol.Length(max=MAX_ROOMS)),
         vol.Optional("decor"): vol.All([DECOR_SCHEMA], vol.Length(max=MAX_DECOR)),
         vol.Optional("stairs"): vol.All([STAIR_SCHEMA], vol.Length(max=MAX_STAIRS)),
+        # Fork (FORK.md §3): nested fly-in targets.
+        vol.Optional("focus_regions"): vol.All(
+            [FOCUS_REGION_SCHEMA], vol.Length(max=MAX_FOCUS_REGIONS), _unique_focus_regions,
+        ),
         vol.Optional("openings"): vol.All([
             vol.Schema(
                 {

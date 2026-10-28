@@ -384,3 +384,42 @@ test('#691 controller owns one fake-clock room timer and cancels it on second in
   for (const callback of [...timers.values()]) callback();
   assert.deepEqual(calls, [], 'a stale-space timer is inert');
 });
+
+test('fork §3 planTap: delayed room and background taps reach the fly-in hook first', () => {
+  const stage = pathNode(['.stage']);
+  const room = pathNode(['[data-hp="room"][data-id]'], 'room-a');
+  const pointer = (pointerId, path) => ({
+    pointerId, pointerType: 'touch', isPrimary: true, button: 0,
+    clientX: 20, clientY: 30, composedPath: () => path,
+  });
+  const timers = new Map();
+  let next = 1;
+  const port = { set(cb) { const id = next++; timers.set(id, cb); return id; }, clear(id) { timers.delete(id); } };
+  const calls = [];
+  let consume = true;
+  const controller = new PlanTapGestureController({
+    current: () => ({ spaceId: 'f', enabled: true }),
+    fitAll: () => calls.push('all'),
+    fitRoom: (id) => calls.push(`room:${id}`),
+    planTap: (space, x, y, roomId) => { calls.push(`tap:${space}:${x},${y}:${roomId}`); return consume; },
+  }, port);
+  const fire = () => { for (const [id, cb] of [...timers]) { timers.delete(id); cb(); } };
+  // A consumed room tap never falls back to room fit.
+  controller.pointerDown(pointer(1, [room, stage]), 'f', true);
+  controller.pointerUp(pointer(1, [room, stage]), { pointerId: 1, spaceId: 'f', roomId: 'room-a' }, 'f', true, false, 1000);
+  fire();
+  assert.deepEqual(calls, ['tap:f:20,30:room-a']);
+  // Not consumed → the ordinary room fit.
+  calls.length = 0; consume = false;
+  controller.pointerDown(pointer(2, [room, stage]), 'f', true);
+  controller.pointerUp(pointer(2, [room, stage]), { pointerId: 2, spaceId: 'f', roomId: 'room-a' }, 'f', true, false, 5000);
+  fire();
+  assert.deepEqual(calls, ['tap:f:20,30:room-a', 'room:room-a']);
+  // A clean background tap is offered to the hook too, and does nothing else.
+  calls.length = 0;
+  controller.pointerDown(pointer(3, [stage]), 'f', true);
+  controller.pointerUp(pointer(3, [stage]), null, 'f', true, false, 9000);
+  assert.deepEqual(calls, [], 'waits for the double-tap window');
+  fire();
+  assert.deepEqual(calls, ['tap:f:20,30:null']);
+});
