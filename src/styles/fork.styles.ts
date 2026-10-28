@@ -93,7 +93,7 @@ export const forkStyles = css`
   .tabs.fork-levelnav { display: none; }
   .tabs.fork-levelnav-edit { background: transparent; border-color: transparent; box-shadow: none; padding: 0; min-width: 0; }
 
-  /* §7 touch: in View, a room's "open HA area" link is a page change and a
+  /* §9 touch: in View, a room's "open HA area" link is a page change and a
      hit target that lands on stairs/markers at phone zoom. Touch-only
      devices never show it; desktop hover keeps it. */
   @media (hover: none) {

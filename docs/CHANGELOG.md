@@ -28,7 +28,7 @@
 - Compact value badges: data rates `1G`/`100M`, durations `95m`/`2h15m`, never
   a doubled unit. (FORK.md §8)
 - Touch View no longer shows a room's "open HA area" link: it is a page
-  change and a hit target that covered stairs at phone zoom. (FORK.md §7)
+  change and a hit target that covered stairs at phone zoom. (FORK.md §9)
 
 ## v1.82.0 — 2026-10-21
 

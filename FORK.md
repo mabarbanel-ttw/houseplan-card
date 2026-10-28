@@ -114,12 +114,13 @@ a room, or a region — and:
   to the whole level;
 - the regions one tap away from where you are get a faint dashed outline, so
   you can see where you can go deeper; nothing else is drawn, no text;
-- markers inside a region you have **not** entered are painted but do not take
-  the tap — on an iPad/phone their 44 px touch targets would otherwise cover
-  the whole rack and you could never fly into it. As soon as you are inside the
-  region they are ordinary markers again (tap = action, hold = device card), and
-  a tap on a marker never triggers a fly-in. Card option
-  `focus_nested_markers: tappable` restores upstream marker taps everywhere.
+- markers inside a region you have **not** entered are hidden and do not take
+  the tap (§7) — on an iPad/phone their 44 px touch targets would otherwise
+  cover the whole rack and you could never fly into it. As soon as you are
+  inside the region they are ordinary markers again (tap = action, hold =
+  device card), and a tap on a marker never triggers a fly-in. Card option
+  `focus_nested_markers: inert` keeps them painted-but-untappable instead;
+  `tappable` restores upstream marker behaviour everywhere.
 
 The maximum zoom is raised from 8x to 32x so a 44 cm faceplate on a 12 m plan
 can fill the stage (fly-ins clamp to it; wheel/pinch can now also go deeper).
@@ -170,7 +171,7 @@ Lovelace card YAML:
 
 ```yaml
 focus_edit: false              # true: show the + / − authoring buttons to writers in View
-focus_nested_markers: inert    # inert (default) | tappable
+focus_nested_markers: hide     # hide (default, §7) | inert | tappable
 ```
 
 **Files.** `src/fork-focus.ts` (`FocusRegion`, `focusRegionList`,
@@ -374,3 +375,26 @@ compact text.
 **Files.** `src/fork-format.ts` (`compactRate`, `compactDuration`,
 `compactBadgeValue`), `src/device-value-badge.ts`, `src/device-presentation.ts`,
 `src/logic.ts` (`valueWithUnit`), `test/fork-format.test.mjs`.
+
+## 9. Touch fixes found on the way
+
+- **Room "open HA area" link hidden on touch-only devices in View** (CSS
+  `@media (hover: none)`): it is a page change (breaks the single pane) and,
+  at phone zoom, its fixed-size button landed on top of stairs and markers and
+  swallowed their taps (observed in the phone demo: a stair tap opened the
+  area link target). Desktop hover keeps it.
+- **Markers no longer block fly-in on touch** (§3/§7): hidden detail drops its
+  44 px touch floor.
+- **On-map chrome owns its input** (`data-scene-surface`): level glyphs, dock,
+  step-out and callout never start a pan/pinch, never count as a plan tap, and
+  use `touch-action: manipulation` (no double-tap zoom delay in iOS WKWebView).
+- **Fits keep content clear of chrome and safe areas** (§2): no landing or
+  room fit puts its target under the level indicator or dock; all chrome uses
+  `env(safe-area-inset-*)`.
+- **Outside-tap dismissal is consumed** (§4): closing a callout never also
+  fits a room underneath.
+
+Verified with touch emulation (`hasTouch`, `(hover: none)`, `(pointer:
+coarse)`) on 1366×1024, 1024×1366 and 390×844 in `demo/fork/shots.mjs`; pinch
+and pan are unchanged upstream code paths (`smoke_room_fit`, `smoke_stairs`,
+`smoke_pan_any_zoom` still pass, see release notes in the report).
