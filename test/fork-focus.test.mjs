@@ -167,3 +167,25 @@ test('fork §7 progressive disclosure: markers per region, decor one level early
   // Outside every region: always shown.
   assert.equal(revealShown([0.1, 0.5], null, 'living', 'marker', level), true);
 });
+
+test('matt.2 region zoom: deeper than the parent, wide regions by height, 44 px targets', async () => {
+  const { regionZoom, markerTouchZoom } = await import('../test-build/fork-focus.js');
+  const base = { baseFitW: 1000, stageWidth: 1000, stageHeight: 1000, insets: NO_INSETS, safeFraction: 0.8, minZoom: 1 / 3, maxZoom: 32 };
+  // Square region 100x100 in a square stage: contain = 8.
+  assert.ok(Math.abs(regionZoom({ ...base, bounds: { w: 100, h: 100 }, parentZoom: 0, markerZoom: 0 }) - 8) < 1e-9);
+  // Wide faceplate (100x20) on a portrait stage: fitted by height (capped at 2.5× contain).
+  const portrait = { ...base, stageWidth: 750, stageHeight: 1000 };
+  const wide = regionZoom({ ...portrait, bounds: { w: 100, h: 20 }, parentZoom: 0, markerZoom: 0 });
+  const contain = (750 * 0.8 / 100) * 1000 / 750;
+  assert.ok(Math.abs(wide - contain * 2.5) < 1e-9);
+  // A tall region is NOT fitted by width (its ends stay on screen).
+  assert.ok(Math.abs(regionZoom({ ...base, stageWidth: 1400, stageHeight: 900, bounds: { w: 90, h: 120 }, parentZoom: 0, markerZoom: 0 })
+    - (900 * 0.8 / 120) * 1000 / 1400) < 1e-9);
+  // Always ≥ 1.35× the parent, and ≥ the 44 px marker zoom, clamped to max.
+  assert.ok(regionZoom({ ...base, bounds: { w: 100, h: 100 }, parentZoom: 7, markerZoom: 0 }) >= 7 * 1.35 - 1e-9);
+  assert.equal(regionZoom({ ...base, bounds: { w: 100, h: 100 }, parentZoom: 0, markerZoom: 20 }), 20);
+  assert.equal(regionZoom({ ...base, bounds: { w: 100, h: 100 }, parentZoom: 0, markerZoom: 99 }), 32);
+  // markerTouchZoom: px = pct·unit·scale·W·zoom / (100·fitW).
+  const z = markerTouchZoom(2.25, 1000, 0.16, 390, 1000);
+  assert.ok(Math.abs((2.25 * 1000 * 0.16 * 390 * z) / (100 * 1000) - 44) < 1e-9);
+});

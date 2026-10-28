@@ -6,6 +6,7 @@
  * entity, reclassify a state or format a value on their own.
  */
 import { compactBadgeValue } from './fork-format';
+import { badgeSuppressed, markerGhostNow } from './fork-marker';
 import {
   climateTempFor, humFor, isHumEntity, isTempEntity,
   persistedExternalControls, resolvedDeviceStateEntities, resolvedLightSources, tempFor,
@@ -749,7 +750,7 @@ export function resolveDevicePresentation(
   options: ResolvePresentationOptions,
 ): ResolvedDevicePresentation {
   // Fork §6: a ghost ("not in HA") marker is a neutral static icon.
-  const ghost = d.marker?.presentation === 'ghost';
+  const ghost = markerGhostNow(hass, d.marker);
   const display = ghost ? 'static_icon' : normalizeDeviceDisplay(d.marker?.display);
   // Two independent questions, and conflating them is the trap this mode was
   // built to avoid (#588). `neutralFace` answers "does anything colour the
@@ -975,6 +976,20 @@ export function resolveDevicePresentation(
     vacuumLive: policy.vacuumLive,
     explanation: { reason, notices },
   };
+  // matt.2 §11/§13: no badge for an inactive link or a listed "fake" value.
+  const rawOf = (source: any): unknown => {
+    if (!source?.entity_id) return undefined;
+    const row = hass?.states?.[source.entity_id];
+    return source.kind === 'entity_attribute' ? row?.attributes?.[source.attribute] : row?.state;
+  };
+  if (presentation.valueBadge && badgeSuppressed(hass, d.marker, rawOf(presentation.valueBadge.source), d.primary)) {
+    presentation.valueBadge = null;
+  }
+  if (presentation.valueText != null && badgeSuppressed(hass, d.marker,
+      rawOf(presentation.valueSource ?? { kind: 'entity_state', entity_id: d.primary }), d.primary)) {
+    presentation.valueText = null;
+    presentation.valueFullText = null;
+  }
   if (ghost) {
     const quiet: ResolvedDevicePresentation = {
       ...presentation,

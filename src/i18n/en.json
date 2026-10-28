@@ -1349,5 +1349,6 @@
   "fork.callout_more": "More",
   "fork.callout_toggle": "Toggle",
   "tap.callout": "Callout",
-  "fork.ghost": "Not in HA"
+  "fork.ghost": "Not in HA",
+  "fork.devices": "Devices"
 }

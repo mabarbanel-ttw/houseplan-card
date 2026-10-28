@@ -1349,5 +1349,6 @@
   "fork.callout_more": "Mehr",
   "fork.callout_toggle": "Umschalten",
   "tap.callout": "Kurzinfo",
-  "fork.ghost": "Nicht in HA"
+  "fork.ghost": "Nicht in HA",
+  "fork.devices": "Geräte"
 }

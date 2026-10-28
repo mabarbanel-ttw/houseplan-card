@@ -306,6 +306,8 @@ export interface InsetCameraInput {
   minZoom: number;
   maxZoom: number;
   safeFraction: number;
+  /** Force this zoom (still clamped) and only centre `bounds` in the free area. */
+  zoom?: number;
 }
 
 /**
@@ -329,7 +331,8 @@ export function insetCameraTarget(input: InsetCameraInput): { zoom: number; view
   const innerH = H - (t + b) * scaleY;
   // Screen pixels per render unit so that bounds fill `safeFraction` of the inner rect.
   const ppuWanted = Math.min((innerW * safeFraction) / bounds.w, (innerH * safeFraction) / bounds.h);
-  const zoomWanted = (ppuWanted * baseFit.w) / W;
+  const zoomWanted = input.zoom !== undefined && Number.isFinite(input.zoom) && input.zoom > 0
+    ? input.zoom : (ppuWanted * baseFit.w) / W;
   const zoom = Math.min(maxZoom, Math.max(minZoom, zoomWanted));
   const w = baseFit.w / zoom;
   const h = w * (H / W);
@@ -435,7 +438,11 @@ export function revealShown(
     // Every enclosing region must be entered (or zoomed into).
     for (const region of ctx.regions) {
       if (ctx.path.has(`region:${region.id}`) || !regionContains(region, point)) continue;
-      if (regionFraction(region, ctx) < REVEAL_SCREEN_FRACTION) return false;
+      // matt.2: a region one tap away (its parent is where you are) is entered
+      // by the tap, never revealed early by zoom — its markers would cover it.
+      const parent = focusParent({ kind: 'region', id: region.id }, ctx.regions);
+      const oneTapAway = !parent ? ctx.path.size === 0 : ctx.path.has(`${parent.kind}:${parent.id}`);
+      if (oneTapAway || regionFraction(region, ctx) < REVEAL_SCREEN_FRACTION) return false;
     }
     return true;
   }
@@ -461,4 +468,60 @@ export function clientToPlanNorm(
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------- matt.2: region depth
+
+export interface RegionZoomInput {
+  bounds: { w: number; h: number };
+  baseFitW: number;
+  stageWidth: number;
+  stageHeight: number;
+  insets: StageInsets;
+  safeFraction: number;
+  /** Zoom of the parent position (room or parent region), 0 when none. */
+  parentZoom: number;
+  /** Zoom at which the smallest interactive marker inside reaches 44 px, 0 when none. */
+  markerZoom: number;
+  minZoom: number;
+  maxZoom: number;
+}
+
+/** A nested level always lands at least this much deeper than its parent. */
+export const NESTED_DEPTH_STEP = 1.35;
+/** How far "fit by the short side" may go past "fit the whole region". */
+export const COVER_LIMIT = 2.5;
+
+/**
+ * Zoom of a focus region (FORK.md §3, matt.2): fit the whole region, or — for
+ * a region wider than the stage — fit its height, up to 2.5× (the rest is
+ * reached by panning); never shallower than 1.35× its parent; and deep enough that
+ * every interactive marker inside is a 44 px touch target. Clamped to limits.
+ */
+export function regionZoom(input: RegionZoomInput): number {
+  const { bounds, baseFitW, stageWidth: W, stageHeight: H, insets } = input;
+  const innerW = Math.max(W * 0.5, W - insets.left - insets.right);
+  const innerH = Math.max(H * 0.5, H - insets.top - insets.bottom);
+  const zW = (innerW * input.safeFraction / bounds.w) * baseFitW / W;
+  const zH = (innerH * input.safeFraction / bounds.h) * baseFitW / W;
+  const contain = Math.min(zW, zH);
+  // Only a region WIDER than the free stage (a faceplate on a portrait iPad)
+  // is fitted by its height; a tall region keeps "fit whole" so its top and
+  // bottom (e.g. the faceplate at the top of a rack) stay on screen.
+  const byHeight = zW < zH ? zH : contain;
+  const wanted = Math.max(
+    contain,
+    Math.min(byHeight, contain * COVER_LIMIT),
+    input.parentZoom > 0 ? input.parentZoom * NESTED_DEPTH_STEP : 0,
+    input.markerZoom > 0 ? input.markerZoom : 0,
+  );
+  return Math.min(input.maxZoom, Math.max(input.minZoom, wanted));
+}
+
+/** Zoom at which a marker of plan-relative size reaches `px` CSS pixels. */
+export function markerTouchZoom(
+  devicePct: number, iconUnit: number, scale: number, stageWidth: number, baseFitW: number, px = 44,
+): number {
+  const perZoom = (devicePct * iconUnit * scale * stageWidth) / (100 * baseFitW);
+  return perZoom > 0 && Number.isFinite(perZoom) ? px / perZoom : 0;
 }

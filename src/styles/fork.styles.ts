@@ -188,6 +188,17 @@ export const forkStyles = css`
     .stage.mode-view .dev, .stage.mode-view .fork-reveal { transition: none; }
   }
 
+  /* matt.2: with a region focused, markers outside it step back: dimmed and
+     inert, so a tap falls through to the region (and its surroundings). */
+  .stage.mode-view .dev.fork-outside {
+    opacity: 0.25;
+  }
+  .stage.mode-view .dev.fork-outside,
+  .stage.mode-view .dev.fork-outside *,
+  .stage.mode-view .dev.fork-outside::before {
+    pointer-events: none !important;
+  }
+
   /* Markers inside a fly-in target you have not entered: painted, not tappable. */
   .stage.mode-view .dev.fork-nested,
   .stage.mode-view .dev.fork-nested *,
@@ -322,6 +333,7 @@ export const forkStyles = css`
     touch-action: manipulation;
     animation: fork-callout-in 180ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
   }
+  .fork-callout { overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box; }
   .fork-callout.above { transform: translate(-50%, calc(-100% - 30px)); }
   .fork-callout.below { transform: translate(-50%, 30px); }
   .fork-callout::after {
@@ -425,9 +437,163 @@ export const forkStyles = css`
     cursor: pointer;
   }
   .fork-callout-more ha-icon { --mdc-icon-size: 20px; line-height: 1; }
+  /* matt.2 §11: an inactive (disconnected) marker's callout says "down" by look */
+  .fork-callout.inactive { border-style: dashed; }
+  .fork-callout.inactive .fork-callout-icon { color: var(--secondary-text-color, #8a929c); opacity: 0.7; }
+  .fork-callout-down {
+    display: inline-grid; place-items: center;
+    width: 36px; height: 26px; border-radius: 999px;
+    border: 1px dashed var(--secondary-text-color, #8a929c);
+    color: var(--secondary-text-color, #8a929c);
+  }
+  .fork-callout-down ha-icon { --mdc-icon-size: 18px; line-height: 1; }
+  /* matt.2 §12: extra entity rows and script buttons of one physical device */
+  .fork-callout-rows { display: grid; gap: 6px; margin-top: 10px; }
+  .fork-callout-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px;
+    font-size: 13px;
+  }
+  .fork-callout-row-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.8; }
+  .fork-callout-row-state { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .fork-callout-toggle.small { width: 44px; height: 26px; border-radius: 13px; }
+  .fork-callout-toggle.small i { width: 20px; height: 20px; }
+  .fork-callout-toggle.small.on i { transform: translateX(18px); }
+  .fork-callout-run { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .fork-callout-run-btn {
+    width: 44px; height: 44px; padding: 0; border-radius: 50%;
+    border: 1px solid var(--fork-edge); background: color-mix(in srgb, var(--fork-ink) 8%, transparent);
+    color: var(--fork-ink); display: grid; place-items: center; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .fork-callout-run-btn:active { transform: scale(0.92); background: color-mix(in srgb, var(--fork-accent) 35%, transparent); }
+  .fork-callout-run-btn ha-icon { --mdc-icon-size: 22px; line-height: 1; }
+  .fork-callout:has(.fork-callout-rows, .fork-callout-run) { min-width: 220px; max-width: min(300px, 86vw); }
+
   @keyframes fork-callout-in {
     from { opacity: 0; }
     to { opacity: 1; }
+  }
+
+  /* matt.2: narrow stages (phones) get compact chrome — the indicator took
+     a sixth of a 390 px map. Matches the insets in _chromeInsets(). */
+  @container (max-width: 560px) {
+    .fork-levels { padding: 4px 2px; border-radius: 18px; gap: 0; }
+    .fork-levels::before { top: 10px; bottom: 10px; }
+    .fork-level { width: 34px; height: 36px; border-radius: 17px; }
+    .fork-level svg { width: 20px; height: 10px; }
+    .fork-dock { gap: 6px; padding: 4px; border-radius: 26px; }
+    .fork-dock-btn { width: 42px; height: 42px; }
+    .fork-dock-btn ha-icon { --mdc-icon-size: 21px; }
+    .fork-stepout { width: 46px; height: 46px; }
+  }
+
+  /* ---- §10 everyday View chrome (matt.2): editors and admin tools live in
+     the one header menu at every width; zoom ± only with a mouse on a wide
+     screen (touch pinches); Fit all stays. */
+  :host([data-fork-view-compact]) .head > .modes,
+  :host([data-fork-view-compact]) .head > .header-action,
+  :host([data-fork-view-compact]) .header-actions > .header-action,
+  :host([data-fork-view-compact]) .header-actions > .summary-control,
+  :host([data-fork-view-compact]) .head > .summary-control {
+    display: none !important;
+  }
+  :host([data-fork-view-compact]) .header-menu-wrap { display: inline-flex; }
+  :host([data-fork-view-compact]) .tabs .tabadd,
+  :host([data-fork-view-compact]) .tabs .tabedit { display: none !important; }
+  @media not ((hover: hover) and (min-width: 900px)) {
+    :host([data-fork-view-compact]) .zoomctl [data-hp="zoom-out"],
+    :host([data-fork-view-compact]) .zoomctl [data-hp="zoom-in"] { display: none; }
+    :host([data-fork-view-compact]) .hdr > .head .zoomctl .zb { border-radius: var(--rad-m); }
+  }
+  .fork-kiosk-menu {
+    position: absolute;
+    z-index: 15;
+    top: max(var(--fork-inset), env(safe-area-inset-top, 0px));
+    right: max(var(--fork-inset), env(safe-area-inset-right, 0px));
+  }
+  .fork-kiosk-menu .header-menu-wrap { display: inline-flex; }
+  .fork-kiosk-menu .header-menu-button {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: var(--fork-glass); border: 1px solid var(--fork-edge); box-shadow: var(--fork-shadow);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  }
+  .fork-kiosk-menu .header-menu { right: 0; left: auto; }
+
+  /* ---- matt.2 round 4: focused markers carry a 1–2 word name */
+  .stage.mode-view .dev .fork-label {
+    position: absolute;
+    left: 50%;
+    top: calc(100% + var(--device-shell-inset, 4px) + 3px);
+    transform: translateX(-50%);
+    max-width: 96px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--card-background-color, #1c2530) 82%, transparent);
+    color: var(--primary-text-color, #e1e1e1);
+    font: 600 11px/1.3 var(--paper-font-body1_-_font-family, inherit);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+    z-index: 3;
+  }
+  .stage.mode-view .dev.fork-hl .device-shell-frame {
+    box-shadow: 0 0 0 3px var(--fork-accent), 0 0 18px color-mix(in srgb, var(--fork-accent) 70%, transparent);
+  }
+
+  /* ---- §14 room sheet: the focused room's devices, inside the map view */
+  .fork-sheet {
+    position: absolute;
+    z-index: 14;
+    left: max(8px, env(safe-area-inset-left, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+    display: flex;
+    flex-direction: column;
+    border-radius: 18px;
+    background: var(--fork-glass);
+    border: 1px solid var(--fork-edge);
+    box-shadow: var(--fork-shadow);
+    backdrop-filter: blur(14px) saturate(1.2);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+    overflow: hidden;
+    animation: fork-rise-sheet 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  .fork-sheet-grip {
+    flex: none; align-self: center; width: 36px; height: 4px; margin: 7px 0 5px;
+    border-radius: 2px; background: var(--fork-edge);
+  }
+  .fork-sheet-list {
+    flex: 1; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
+    -webkit-overflow-scrolling: touch; padding: 0 6px 6px;
+  }
+  .fork-sheet-row {
+    display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 10px;
+    width: 100%; min-height: 48px; padding: 4px 10px; border: 0; border-radius: 12px;
+    background: transparent; color: var(--fork-ink); text-align: start; cursor: pointer;
+    font-size: 14px; -webkit-tap-highlight-color: transparent;
+  }
+  .fork-sheet-row ha-icon { --mdc-icon-size: 22px; line-height: 1; color: var(--secondary-text-color, #9aa4ad); }
+  .fork-sheet-row.on ha-icon { color: var(--fork-accent); }
+  .fork-sheet-row.ghost { opacity: 0.55; }
+  .fork-sheet-row.hl, .fork-sheet-row:active { background: color-mix(in srgb, var(--fork-accent) 20%, transparent); }
+  :host([data-pointer-hover]) .fork-sheet-row:hover { background: color-mix(in srgb, var(--fork-ink) 9%, transparent); }
+  .fork-sheet-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fork-sheet-state { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; opacity: 0.85; }
+  @keyframes fork-rise-sheet { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+
+  /* round 4: on a phone the level stack is a small horizontal pill docked in
+     the bottom-right corner, in the same band as the dock (never over a room) */
+  @container (max-width: 560px) {
+    .fork-levels {
+      top: auto;
+      transform: none;
+      bottom: max(var(--fork-inset), env(safe-area-inset-bottom, 0px));
+      flex-direction: row;
+      padding: 3px 4px;
+      animation: none;
+    }
+    .fork-levels::before { top: 50%; bottom: auto; left: 12px; right: 12px; width: auto; height: 2px; transform: translateY(-1px); }
+    .fork-level { width: 34px; height: 44px; }
   }
 
   @keyframes fork-pop {

@@ -13,7 +13,10 @@ layout (`hacs.json` → `houseplan.zip`, `zip_release: true`).
 
 Contents: §1 stairs fly-landing · §2 level indicator · §3 nested fly-in
 targets · §4 touch callout · §5 scene dock · §6 "not in HA" ghost · §7
-progressive disclosure · §8 compact value badges · §9 touch fixes · Release.
+progressive disclosure · §8 compact value badges · §9 touch fixes · §10
+everyday View chrome · §11 inactive (down) markers · §12 one marker per
+device: callout actions and extra rows · §13 no fake badges · §14 phone room
+view and room sheet · matt.2 fixes · Release.
 
 UI copy rule for every fork feature: no sentences or text badges in the UI;
 state is shown visually (dimmed, dashed outline, icon); labels are at most one
@@ -408,12 +411,195 @@ coarse)`) on 1366×1024, 1024×1366 and 390×844 in `demo/fork/shots.mjs`; pinch
 and pan are unchanged upstream code paths (`smoke_room_fit`, `smoke_stairs`,
 `smoke_pan_any_zoom` still pass, see release notes in the report).
 
+## 10. Everyday View chrome (matt.2)
+
+**What.** View and kiosk show no editor or admin tools; the one menu button is
+a ⋮. The Plan / Device /
+Background editors, space settings, add space, general settings, PDF,
+help & feedback, show hidden devices and the summary-panel controls all live
+in the one header menu (upstream's phone menu, now used at every width). In
+the header only the title, the space tabs (unless §2's indicator replaces
+them), **Fit all** and the menu button remain; zoom −/+ show only with a mouse
+on a ≥ 900 px wide screen (touch pinches). Kiosk has no header: its two
+floating summary buttons become one round menu button in the map's top-right
+corner. Editors themselves are unchanged (entering one restores the full
+upstream header).
+
+**Config keys** (card YAML): `fork_menu: false` restores the upstream header.
+
+**Files.** `src/houseplan-card.ts` (`_forkCompactView`, host attribute
+`data-fork-view-compact`, kiosk menu), `src/styles/fork.styles.ts`.
+
+## 11. Inactive ("down") markers (matt.2)
+
+**What.** A marker whose state source is inactive can look disconnected —
+the §6 ghost look (dimmed, dashed, no text) — and drop its value badge, only
+while inactive. Built on upstream's marker `state_source` (#977): the marker
+is *inactive* when `state_source.active_states` is set and the source state is
+not one of them (unknown/unavailable count as inactive). Example: a UniFi port
+`link_speed` sensor reports `10` with no link → the port marker is a dashed
+ghost with no badge; with a real link it shows `1G`/`100M` (§8). Its touch
+callout shows a dashed "disconnected" glyph instead of a state or value —
+never "10M". Taps keep the marker's configured action.
+
+**Config keys** (persisted marker fields, validated by the integration):
+
+```json
+{
+  "id": "udm-port-7", "binding": "entity:sensor.udm_port_7_link_speed", "tap_action": "callout",
+  "state_source": { "entity_id": "sensor.udm_port_7_link_speed", "active_states": ["100", "1000", "2500", "10000"] },
+  "inactive_presentation": "ghost",
+  "hide_badge_when_inactive": true
+}
+```
+
+`inactive_presentation`: `"ghost"` | `null`; `hide_badge_when_inactive`:
+boolean | `null`. (`state_source` must reference an entity of the marker's own
+binding, as upstream requires.)
+
+## 12. One marker per physical device: callout actions and extra rows (matt.2)
+
+**What.** Extras of a device live in its §4 touch callout instead of separate
+map markers:
+
+- `actions`: a row of round icon buttons (44 px) that run `script.turn_on` /
+  `scene.turn_on` (only `script.*` / `scene.*`, up to 12; entries missing in HA
+  are not shown);
+- `extra_entities`: compact rows — name, HA-formatted state, and a switch for
+  `switch`/`light`/`fan`/`input_boolean`/`siren`/`humidifier` (calls
+  `<domain>.toggle`; never locks, covers or alarm panels) — up to 16.
+
+The device hold card (600 ms) is unchanged in this release: the extras are in
+the callout only.
+
+**Config keys:**
+
+```json
+{
+  "id": "mini-lanterns", "binding": "entity:light.mini_lanterns", "tap_action": "callout",
+  "actions": [
+    { "entity": "script.lanterns_candle", "icon": "mdi:candle", "name": "Candle" },
+    { "entity": "script.lanterns_steady", "icon": "mdi:lightbulb-on-outline" },
+    { "entity": "script.lanterns_dimmer", "icon": "mdi:brightness-4" },
+    { "entity": "script.lanterns_brighter", "icon": "mdi:brightness-7" },
+    { "entity": "script.lanterns_lowest", "icon": "mdi:brightness-1" },
+    { "entity": "script.lanterns_brightest", "icon": "mdi:white-balance-sunny" }
+  ],
+  "extra_entities": ["select.lantern_scene", "switch.heater_oscillation", "number.heater_target"]
+}
+```
+
+`icon` defaults to `mdi:play` (script) / `mdi:palette` (scene); `name` is the
+accessible name / hover title only.
+
+## 13. No fake badges (matt.2)
+
+**What.** `badge_hide_when` lists raw source values for which the value badge
+(and the value face) shows nothing: numbers compare numerically (`"0"` also
+hides `0.0`), text case-insensitively; the token `"primary_off"` hides it while
+the marker's primary entity is `off` (an oven display reading 0.0 °F while the
+oven is off).
+
+```json
+{ "id": "oven", "binding": "entity:switch.oven", "badge_hide_when": ["0", "unknown", "unavailable", "primary_off"] }
+```
+
+Up to 8 strings of ≤ 32 characters.
+
+The device editor has no fields for §7 `reveal` or §11–§13 keys; a dialog save
+now carries all of them through unchanged (`forkMarkerCarry`; matt.1 dropped
+`reveal` on a dialog save).
+
+**Files (§11–§13).** `src/fork-marker.ts` (`markerInactive`,
+`markerGhostNow`, `badgeSuppressed`, `markerActions`, `markerExtraEntities`,
+`rowToggleable`, `forkMarkerCarry`), `src/device-presentation.ts`,
+`src/fork-chrome.ts` (callout rows/actions/down glyph),
+`src/houseplan-card.ts` (`_calloutModel`), `src/houseplan-editor-runtime.ts`
+(carry on both save paths), `src/types.ts`, `src/styles/fork.styles.ts`,
+`custom_components/houseplan/validation.py`, `scripts/config-schema.json`,
+`docs/data-hp-contract.json`, `test/fork-marker.test.mjs`,
+`tests_backend/test_fork_single_pane.py`.
+
+## 14. Phone room view and room sheet (matt.2)
+
+**What.** Tapping a room on a phone used to leave a small room with 35 px
+unnamed markers under a large level switcher. Now:
+
+- **A focused room fills the free stage** edge to edge (96 % instead of
+  upstream's 80 % room fit; margins = the chrome bands and safe areas).
+- **While a room or region is focused, everything outside it is dimmed (25 %)
+  and inert**, so taps fall through to the focus; stepping out restores it.
+- **Focused markers are ≥ 44 CSS px** (their size is `max(<plan size>, 44 px)`
+  while focused) and carry a **1–2 word name label** under the icon (not on
+  ghost / disconnected markers). Card YAML `focus_labels: false` hides the
+  labels.
+- **Phone chrome:** on stages ≤ 560 px wide the level switcher is a small
+  horizontal pill docked bottom-right in the same band as the scene dock (it
+  never covers a room); the kiosk's top-right buttons are one ⋮ menu (§10).
+- **Room sheet:** when a focused room (or region) is still too dense for
+  labelled 44 px targets on a phone — 6 or more visible devices on a stage
+  ≤ 560 px wide — a sheet inside the map view (never a page) lists them: icon,
+  name, state; a tap runs the marker's own tap action (e.g. its callout,
+  anchored on the map) and highlights the marker. The room is fitted above
+  the sheet. Card YAML `room_sheet: auto` (default) | `always` | `off`.
+- Callouts open on the side of the marker with more free room and scroll
+  inside it, so they never run under the toolbar, sheet or dock.
+
+**Not done: rotating the plan** for a landscape room on a portrait phone. The
+card's camera is an axis-aligned SVG viewBox shared by ~20 layers (plan SVG,
+2.5D layers, HTML marker/label/callout layers, live pan/pinch transforms,
+hit-testing, tooltips, vacuum paths, PDF export); a rotated camera means a
+rotation term in every one of those paths and in every client→plan
+conversion. It is a separate, larger change; until then such rooms are fitted
+by width and the rest is reached by panning.
+
+**Config keys** (card YAML):
+
+```yaml
+room_sheet: auto      # auto (default) | always | off
+focus_labels: true    # false hides the focused-marker name labels
+```
+
+**Files.** `src/houseplan-card.ts` (`_forkInFocus`, `_forkShortName`,
+`_forkUncapStyle` 44 px minimum, `_forkFocusDevices`, `_forkSheetHeight`,
+`_forkSheetRows`, `_forkSheetTap`, chrome insets, room fit 0.96),
+`src/fork-chrome.ts` (`renderRoomSheet`, callout `maxHeight`),
+`src/header-menu.ts` (menu icon), `src/styles/fork.styles.ts`,
+`src/i18n/*.json` (`fork.devices`), `docs/data-hp-contract.json`.
+
+## matt.2 fixes to §2/§3/§7 (found on the live house)
+
+1. **Card size in a panel view.** In kiosk the stage was `100dvh` tall, so under
+   HA's 56 px app toolbar the dock, zoom badge and other bottom chrome were
+   below the fold. Kiosk now subtracts the measured, bounded (≤ 120 px) space
+   above the card — `calc(100dvh - <toolbar>px)`, the same budget upstream
+   already used without kiosk. On stages ≤ 560 px wide (phones) the level
+   indicator (34 px glyphs), dock (42 px buttons) and step-out shrink; the fit
+   insets follow (58 / 66 px).
+2. **Touch-sized targets at the deepest level.** A focus region now lands at
+   `regionZoom` = the largest of: fit the whole region; for a region wider
+   than the free stage, fit its height (≤ 2.5×, pan for the rest); 1.35× its
+   parent's zoom (a nested level always lands visibly deeper); the zoom at
+   which every interactive marker inside (not ghosts, not markers of hidden
+   child regions) is ≥ 44 CSS px — clamped to 32x. Markers inside the focused
+   region are not held at the 8x size (§7), so they render at that size.
+   A region one tap away is never revealed early by zoom (its markers would
+   cover it).
+3. **Clutter outside the focus.** With a region focused, markers outside it
+   render at 25 % opacity and are inert, so taps fall through to the region;
+   they come back when you step out of the region. `focus_nested_markers`
+   keeps its meaning for markers inside.
+
+Verified in the demo harness under a real 56 px toolbar, `kiosk: true` and a
+docked 256 px sidebar on desktop: `node demo/fork/shots.mjs --panel`
+(`fork-shots/panel-*`).
+
 ## Release (how `v1.82.0-matt.1` was produced)
 
 1. Versions: `package.json`, `package-lock.json` (2), `src/houseplan-card.ts`
    and `src/houseplan-editor-runtime.ts` (`CARD_VERSION`),
    `custom_components/houseplan/manifest.json`, `custom_components/houseplan/const.py`
-   → `1.82.0-matt.1`. `hacs.json` unchanged (`houseplan.zip`, `zip_release`).
+   → `1.82.0-matt.1` (then `1.82.0-matt.2`). `hacs.json` unchanged (`houseplan.zip`, `zip_release`).
 2. `npm ci --ignore-scripts` (upstream git hooks are not installed in the fork),
    `npm run bundle:release` (dist + `custom_components/houseplan/frontend`),
    `node scripts/bundle-tree.mjs dist custom_components/houseplan/frontend`.

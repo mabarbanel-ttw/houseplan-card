@@ -99,10 +99,11 @@ export function renderLevelIndicator(
   glyphs: readonly LevelGlyph[],
   onPick: (id: string) => void,
   label = 'Levels',
+  style = '',
 ): TemplateResult | typeof nothing {
   if (glyphs.length < 2) return nothing;
   return html`<nav class="fork-levels" data-hp="fork-levels" data-scene-surface
-    aria-label=${label}>
+    aria-label=${label} style=${style || nothing}>
     ${repeat(glyphs, (glyph) => glyph.id, (glyph) => html`<button type="button"
         class="fork-level ${glyph.current ? 'current' : ''}" data-hp="fork-level" data-id=${glyph.id}
         aria-label=${glyph.title} title=${glyph.title}
@@ -177,8 +178,16 @@ export interface CalloutModel {
   top: number;
   /** Horizontal shift (px) keeping the card on screen; the beak shifts back. */
   shift: number;
+  /** matt.2 §11: the state source is inactive (e.g. a port with no link). */
+  inactive?: boolean;
+  /** matt.2 §12: script/scene buttons. */
+  actions?: Array<{ entity: string; icon: string; name: string }>;
+  /** matt.2 §12: extra entity rows. */
+  rows?: Array<{ entity: string; name: string; state: string; toggle: { on: boolean; available: boolean } | null }>;
   /** Open below the marker (near the top edge) instead of above. */
   below: boolean;
+  /** Room on that side (px); the card scrolls inside it. */
+  maxHeight?: number;
 }
 
 export const CALLOUT_TOGGLE_DOMAINS = ['switch', 'light'] as const;
@@ -191,18 +200,23 @@ export function calloutToggleEntity(primary: string | null | undefined): string 
 export function renderCallout(
   model: CalloutModel,
   labels: { toggle: string; more: string; close: string },
-  actions: { toggle: (entity: string) => void; more: (entity: string) => void; close: () => void },
+  actions: {
+    toggle: (entity: string) => void; more: (entity: string) => void; close: () => void;
+    run?: (entity: string) => void;
+  },
 ): TemplateResult {
-  return html`<div class="fork-callout ${model.below ? 'below' : 'above'} ${model.on ? 'on' : ''}"
+  return html`<div class="fork-callout ${model.below ? 'below' : 'above'} ${model.on ? 'on' : ''} ${model.inactive ? 'inactive' : ''}"
     data-hp="fork-callout" data-id=${model.id} data-scene-surface role="dialog" aria-label=${model.name}
-    style="left:calc(${model.left}% + ${model.shift}px);top:${model.top}%;--fork-beak:${-model.shift}px"
+    style="left:calc(${model.left}% + ${model.shift}px);top:${model.top}%;--fork-beak:${-model.shift}px;${model.maxHeight ? `max-height:${model.maxHeight}px` : ''}"
     @pointerdown=${(event: Event) => event.stopPropagation()}
     @click=${(event: Event) => event.stopPropagation()}>
     <div class="fork-callout-head">
       <ha-icon class="fork-callout-icon" icon=${model.icon}></ha-icon>
       <span class="fork-callout-name">${model.name}</span>
     </div>
-    ${model.state || model.value ? html`<div class="fork-callout-vals">
+    ${model.inactive ? html`<div class="fork-callout-vals"><span class="fork-callout-down" data-hp="fork-callout-down"
+      role="img" aria-label="down"><ha-icon icon="mdi:lan-disconnect"></ha-icon></span></div>` : nothing}
+    ${!model.inactive && (model.state || model.value) ? html`<div class="fork-callout-vals">
       ${model.state ? html`<span class="fork-callout-state" data-hp="fork-callout-state">${model.state}</span>` : nothing}
       ${model.value ? html`<span class="fork-callout-value" data-hp="fork-callout-value"
         title=${model.valueLabel}>${model.value}</span>` : nothing}
@@ -217,5 +231,56 @@ export function renderCallout(
           aria-label=${labels.more} title=${labels.more}
           @click=${() => actions.more(model.more!)}><ha-icon icon="mdi:dots-horizontal"></ha-icon></button>` : nothing}
     </div>` : nothing}
+    ${model.rows?.length ? html`<div class="fork-callout-rows">${model.rows.map((row) => html`<div
+        class="fork-callout-row" data-hp="fork-callout-row" data-entity=${row.entity}>
+        <span class="fork-callout-row-name">${row.name}</span>
+        <span class="fork-callout-row-state">${row.state}</span>
+        ${row.toggle ? html`<button type="button" role="switch" class="fork-callout-toggle small ${row.toggle.on ? 'on' : ''}"
+          data-hp="fork-callout-row-toggle" aria-checked=${row.toggle.on ? 'true' : 'false'} aria-label=${row.name}
+          ?disabled=${!row.toggle.available} @click=${() => actions.toggle(row.entity)}><i></i></button>` : nothing}
+      </div>`)}</div>` : nothing}
+    ${model.actions?.length ? html`<div class="fork-callout-run" role="toolbar">${model.actions.map((item) => html`<button
+        type="button" class="fork-callout-run-btn" data-hp="fork-callout-action" data-entity=${item.entity}
+        aria-label=${item.name || item.entity} title=${item.name || item.entity}
+        @click=${() => actions.run?.(item.entity)}><ha-icon icon=${item.icon}></ha-icon></button>`)}</div>` : nothing}
   </div>`;
+}
+
+// ---------------------------------------------------------------- matt.2 room sheet
+
+export interface SheetRow {
+  id: string;
+  name: string;
+  icon: string;
+  state: string;
+  on: boolean;
+  ghost: boolean;
+}
+
+/**
+ * The focused room's devices as a list inside the map view (never a page):
+ * icon, name, state; a tap runs the marker's own tap action and highlights it
+ * on the map. Shown on narrow stages when the room is too dense for labelled
+ * 44 px targets (FORK.md §14).
+ */
+export function renderRoomSheet(
+  rows: readonly SheetRow[], height: number, bottom: number, label: string,
+  onRow: (id: string) => void, onHover: (id: string | null) => void, highlighted: string | null,
+): TemplateResult | typeof nothing {
+  if (!rows.length || height <= 0) return nothing;
+  return html`<section class="fork-sheet" data-hp="fork-sheet" data-scene-surface aria-label=${label}
+    style="height:${height}px;bottom:${bottom}px">
+    <div class="fork-sheet-grip" aria-hidden="true"></div>
+    <div class="fork-sheet-list" role="list">
+      ${repeat(rows, (row) => row.id, (row) => html`<button type="button" role="listitem"
+        class="fork-sheet-row ${row.on ? 'on' : ''} ${row.ghost ? 'ghost' : ''} ${highlighted === row.id ? 'hl' : ''}"
+        data-hp="fork-sheet-row" data-id=${row.id}
+        @pointerenter=${() => onHover(row.id)} @pointerleave=${() => onHover(null)}
+        @click=${(event: Event) => { event.stopPropagation(); onRow(row.id); }}>
+        <ha-icon icon=${row.icon}></ha-icon>
+        <span class="fork-sheet-name">${row.name}</span>
+        <span class="fork-sheet-state">${row.state}</span>
+      </button>`)}
+    </div>
+  </section>`;
 }

@@ -141,14 +141,14 @@ export class HeaderMenu {
     else if (rect.right > box.right) nav.scrollLeft += rect.right - box.right;
   }
 
-  render(items: HeaderMenuItem[], label: string): TemplateResult | typeof nothing {
+  render(items: HeaderMenuItem[], label: string, icon = 'mdi:cog-outline'): TemplateResult | typeof nothing {
     if (!items.length) return nothing;
     const run = (item: HeaderMenuItem) => { this.close(false); item.run(); };
     return html`<span class="header-menu-wrap">
       <button class="btn header-menu-button ${this.open ? 'on' : ''}" data-hp="header-menu"
         aria-haspopup="true" aria-expanded=${this.open ? 'true' : 'false'} aria-controls="hp-header-menu"
         data-hp-tooltip=${label} aria-label=${label} @click=${() => this.toggle()}>
-        <ha-icon icon="mdi:cog-outline"></ha-icon>
+        <ha-icon icon=${icon}></ha-icon>
       </button>
       ${this.open ? html`<div class="header-menu-scrim" data-hp="header-menu-scrim"
           @click=${(event: Event) => { event.stopPropagation(); this.close(false); }}></div>

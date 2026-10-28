@@ -13,6 +13,15 @@
     "config.markers[]": {
       "allowExtra": true
     },
+    "config.markers[].actions": {
+      "list": {
+        "allowExtra": true,
+        "object": true
+      },
+      "maxLength": 12,
+      "nullable": true,
+      "required": false
+    },
     "config.markers[].angle": {
       "max": 360,
       "min": -360,
@@ -24,6 +33,16 @@
       "nullable": true,
       "required": false,
       "type": "str"
+    },
+    "config.markers[].badge_hide_when": {
+      "list": {
+        "maxLength": 32,
+        "minLength": 1,
+        "type": "str"
+      },
+      "maxLength": 8,
+      "nullable": true,
+      "required": false
     },
     "config.markers[].binding": {
       "maxLength": 500,
@@ -73,6 +92,15 @@
         }
       ]
     },
+    "config.markers[].extra_entities": {
+      "list": {
+        "opaque": "Match('^[a-z0-9_]+\\\\.[a-z0-9_]+$', msg=None)",
+        "type": "str"
+      },
+      "maxLength": 16,
+      "nullable": true,
+      "required": false
+    },
     "config.markers[].glow_color": {
       "nullable": true,
       "required": false
@@ -99,6 +127,11 @@
       "required": false,
       "type": "bool"
     },
+    "config.markers[].hide_badge_when_inactive": {
+      "nullable": true,
+      "required": false,
+      "type": "bool"
+    },
     "config.markers[].hide_battery": {
       "required": false,
       "type": "bool"
@@ -116,6 +149,11 @@
     "config.markers[].id": {
       "required": true,
       "type": "str"
+    },
+    "config.markers[].inactive_presentation": {
+      "const": "ghost",
+      "nullable": true,
+      "required": false
     },
     "config.markers[].is_light": {
       "nullable": true,

@@ -1349,5 +1349,6 @@
   "fork.callout_more": "Подробнее",
   "fork.callout_toggle": "Переключить",
   "tap.callout": "Выноска",
-  "fork.ghost": "Не в HA"
+  "fork.ghost": "Не в HA",
+  "fork.devices": "Устройства"
 }

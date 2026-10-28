@@ -85,3 +85,24 @@ def test_fork_reveal_on_markers_and_decor(reveal):
 def test_fork_reveal_rejects_unknown_rules(bad):
     with pytest.raises(vol.Invalid):
         v.CONFIG_SCHEMA({"spaces": [], "markers": [{"id": "m", "binding": "virtual", "reveal": bad}]})
+
+
+def test_matt2_marker_keys_round_trip_and_bound():
+    marker = {
+        "id": "m", "binding": "entity:light.mini_lanterns",
+        "inactive_presentation": "ghost", "hide_badge_when_inactive": True,
+        "badge_hide_when": ["0", "unknown", "unavailable", "primary_off"],
+        "actions": [{"entity": "script.lanterns_candle", "icon": "mdi:candle", "name": "Candle"}],
+        "extra_entities": ["select.lantern_scene", "switch.heater_oscillation"],
+    }
+    out = v.CONFIG_SCHEMA({"spaces": [], "markers": [marker]})["markers"][0]
+    assert {k: out[k] for k in marker} == marker
+    for bad in (
+        {"inactive_presentation": "glass"},
+        {"actions": [{"entity": "light.x"}]},
+        {"actions": [{"entity": f"script.s{i}"} for i in range(13)]},
+        {"extra_entities": ["not an id"]},
+        {"badge_hide_when": [""]},
+    ):
+        with pytest.raises(vol.Invalid):
+            v.CONFIG_SCHEMA({"spaces": [], "markers": [{**marker, **bad}]})

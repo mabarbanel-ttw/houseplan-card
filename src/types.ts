@@ -270,6 +270,18 @@ export interface Marker {
   /** Fork (FORK.md §6): `ghost` = "not in HA" — dimmed icon, dashed outline,
    *  no text/state, tap does nothing unless `tap_action` is set. */
   presentation?: 'ghost' | null;
+  /** matt.2 §11: how the marker looks while its `state_source` is inactive
+   *  (state not in `active_states`): `ghost` = disconnected look. */
+  inactive_presentation?: 'ghost' | null;
+  /** matt.2 §11: drop the value badge while the state source is inactive. */
+  hide_badge_when_inactive?: boolean | null;
+  /** matt.2 §13: badge source values that show no badge ("0", "unknown",
+   *  …; `primary_off` = while the primary entity is off). */
+  badge_hide_when?: string[] | null;
+  /** matt.2 §12: script/scene buttons in the marker's callout. */
+  actions?: Array<{ entity: string; icon?: string | null; name?: string | null }> | null;
+  /** matt.2 §12: extra entity rows (state + toggle) in the marker's callout. */
+  extra_entities?: string[] | null;
 }
 
 /** One saved answer to "this exact map of this exact source lives here" (#162). */

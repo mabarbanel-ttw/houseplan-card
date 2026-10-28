@@ -22,28 +22,56 @@ const VIEWPORTS = [
   { key: 'ipad-land', size: { width: 1366, height: 1024 }, touch: true },
   { key: 'ipad-port', size: { width: 1024, height: 1366 }, touch: true },
   { key: 'phone', size: { width: 390, height: 844 }, touch: true },
+  { key: 'phone-max', size: { width: 430, height: 932 }, touch: true },
 ];
 const only = arg('only', '').split(',').filter(Boolean);
+// matt.2: --panel mounts the card the way the owner's dashboard does — a
+// Lovelace panel view under HA's 56 px app toolbar, `kiosk: true`, and on the
+// desktop a docked 256 px sidebar — and runs the View scenarios there.
+const PANEL = process.argv.includes('--panel');
 const scenarios = arg('scenarios', '').split(',').filter(Boolean);
 const want = (name) => !scenarios.length || scenarios.includes(name);
 const CARD_OPTIONS = {
+  ...(PANEL ? { kiosk: true, default_floor: 'main', level_density: 'reduced' } : {}),
   level_nav: 'indicator',
   scene_dock: [
     { entity: 'script.night_study', icon: 'mdi:book-open-variant', name: 'Study' },
     { entity: 'script.late_night_chill', icon: 'mdi:weather-night', name: 'Chill' },
     { entity: 'scene.all_off', icon: 'mdi:power', name: 'All off' },
+    ...(PANEL ? [
+      { entity: 'script.early_morning', icon: 'mdi:weather-sunset-up', name: 'Morning' },
+      { entity: 'script.house_lights_off', icon: 'mdi:lightbulb-group-off', name: 'Lights off' },
+    ] : []),
   ],
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function setup(page, options = CARD_OPTIONS) {
-  await page.evaluate(async ({ config, layout, entities, options }) => {
+async function setup(page, options = CARD_OPTIONS, vp = null) {
+  await page.evaluate(async ({ config, layout, entities, options, panel, sidebar }) => {
     const host = document.getElementById('host');
-    host.style.width = '100vw'; host.style.padding = '0'; host.style.boxSizing = 'border-box';
+    host.style.width = sidebar ? `calc(100vw - ${sidebar}px)` : '100vw';
+    host.style.padding = '0'; host.style.boxSizing = 'border-box';
     document.body.style.margin = '0';
+    if (panel && !document.getElementById('ha-toolbar')) {
+      // HA's app toolbar (56 px) above a panel view, plus the docked sidebar.
+      const bar = document.createElement('div');
+      bar.id = 'ha-toolbar';
+      bar.style.cssText = 'height:56px;background:#1c1c1c;color:#e1e1e1;display:flex;align-items:center;padding:0 16px;font:20px sans-serif;box-sizing:border-box';
+      bar.textContent = 'Home';
+      host.before(bar);
+      if (sidebar) {
+        document.body.style.display = 'grid';
+        document.body.style.gridTemplateColumns = `${sidebar}px 1fr`;
+        const side = document.createElement('div');
+        side.style.cssText = 'grid-row:1 / span 2;background:#181818;height:100vh';
+        document.body.prepend(side);
+        bar.style.gridColumn = '2'; host.style.gridColumn = '2'; host.style.width = '100%';
+      }
+    }
     for (const [id, area, state, attributes] of entities) {
-      window.__addRegistryEntity(id, area, state, 'demo', {}, attributes);
+      if (!window.__addedFork?.has(id)) window.__addRegistryEntity(id, area, state, 'demo', {}, attributes);
+      (window.__addedFork ||= new Set()).add(id);
     }
     const card = window.__card;
     card.hass = {
@@ -57,7 +85,8 @@ async function setup(page, options = CARD_OPTIONS) {
     await window.__card._tabClick('main');
     card.hass = { ...card.hass };
     await window.__hpTest.settled();
-  }, { config: FORK_CONFIG, layout: FORK_LAYOUT, entities: FORK_ENTITIES, options });
+  }, { config: FORK_CONFIG, layout: FORK_LAYOUT, entities: FORK_ENTITIES, options,
+    panel: PANEL, sidebar: PANEL && vp?.key === 'desktop' ? 256 : 0 });
   await settle(page);
 }
 
@@ -129,7 +158,7 @@ async function reset(page) {
 const near = (a, b, tol) => Math.abs(a - b) <= tol;
 
 async function shot(page, vp, name) {
-  const dir = resolve(OUT, vp.key);
+  const dir = resolve(OUT, PANEL ? `panel-${vp.key}` : vp.key);
   mkdirSync(dir, { recursive: true });
   const path = resolve(dir, `${name}.png`);
   await page.screenshot({ path });
@@ -214,9 +243,11 @@ async function scenarioLevels(page, vp) {
     const stage = c.renderRoot.querySelector('.stage').getBoundingClientRect();
     const levels = c.renderRoot.querySelector('[data-hp="fork-levels"]').getBoundingClientRect();
     const ppu = stage.width / v.w;
+    const pl = stage.left + (x - v.x) * ppu, pr = stage.left + (x + w - v.x) * ppu;
+    const pt = stage.top + (y - v.y) * ppu, pb = stage.top + (y + h - v.y) * ppu;
     return {
       inside: x >= v.x - 1e-6 && y >= v.y - 1e-6 && x + w <= v.x + v.w + 1e-6 && y + h <= v.y + v.h + 1e-6,
-      clear: stage.left + (x + w - v.x) * ppu <= levels.left + 1,
+      clear: pr <= levels.left + 1 || pb <= levels.top + 1 || pl >= levels.right - 1 || pt >= levels.bottom - 1,
     };
   });
   check(`${tag}: glyph lands on fit-all (whole level visible)`, frame.inside, true);
@@ -228,7 +259,8 @@ async function scenarioLevels(page, vp) {
   s = await state(page);
   check(`${tag}: glyph switched to lower`, s.space, 'lower');
   await shot(page, vp, '02-levels-3-lower');
-  // Editors keep the text tabs.
+  // Editors keep the text tabs (not reachable in kiosk).
+  if (PANEL) { await page.evaluate(() => window.__card._tabClick('main')); await settle(page); return; }
   const editorTabs = await page.evaluate(async () => {
     await window.__hpTest.setMode('plan');
     const n = window.__card.renderRoot.querySelectorAll('[data-hp="space-tab"]').length;
@@ -313,7 +345,9 @@ async function scenarioNested(page, vp) {
   // 6. from the faceplate, double-tap = Fit all (whole level) at once
   await page.evaluate(() => window.__card._fitRegion('udm'));
   await settle(page, 200);
-  const p = await screenOfPlan(page, 0.4605, 0.131);
+  // An empty plan spot just below the step-out control (never a marker or the sheet).
+  const st = await centerOf(page, '.stage');
+  const p = { x: st.x, y: st.y - st.h / 2 + 90 };
   await tap(page, vp, p); await sleep(120); await tap(page, vp, p);
   await settle(page, 300);
   s = await state(page);
@@ -398,9 +432,10 @@ async function scenarioCallout(page, vp) {
   c = await callout();
   check(`${tag}: callout follows the new state`, c?.toggle, 'false');
   await shot(page, vp, '04-callout-2-toggled');
-  // Outside tap closes it and does nothing else.
+  // Outside tap closes it and does nothing else (a plan spot clear of chrome/sheet).
   const before = await state(page);
-  await tap(page, vp, await screenOfPlan(page, 0.12, 0.42));
+  const stBox = await centerOf(page, '.stage');
+  await tap(page, vp, { x: stBox.x - stBox.w / 2 + 30, y: stBox.y - stBox.h / 2 + 150 });
   await sleep(450);
   await settle(page, 100);
   check(`${tag}: tap outside closes the callout`, await callout(), null);
@@ -444,7 +479,7 @@ async function scenarioDock(page, vp) {
     } : null;
   });
   check(`${tag}: dock renders configured items`, dock?.items.map((i) => i.entity),
-    ['script.night_study', 'script.late_night_chill', 'scene.all_off']);
+    CARD_OPTIONS.scene_dock.map((i) => i.entity));
   check(`${tag}: dock buttons carry no text, name only as hover title`, dock?.items.every((i) => i.text === '' && !!i.title), true);
   check(`${tag}: default corner bottom-left`, dock?.bottomLeft, true);
   check(`${tag}: dock never covers the level indicator`, dock?.overlapsLevels, false);
@@ -579,6 +614,253 @@ async function scenarioReveal(page, vp) {
   check(`${tag}: zooming in by hand past the threshold reveals the ports`, r.port, 'shown');
 }
 
+async function scenarioPanel(page, vp) {
+  const tag = `${vp.key}.panel`;
+  const chrome = () => page.evaluate(() => {
+    const c = window.__card;
+    const root = c.renderRoot;
+    const box = (sel) => { const r = root.querySelector(sel)?.getBoundingClientRect(); return r ? { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height } : null; };
+    const card = c.getBoundingClientRect();
+    return {
+      vw: window.innerWidth, vh: window.innerHeight, cardBottom: card.bottom,
+      dock: box('[data-hp="fork-dock"]'), levels: box('[data-hp="fork-levels"]'),
+      stepout: box('[data-hp="fork-stepout"]'), stage: box('.stage'),
+    };
+  });
+  const visible = (b, c) => !!b && b.l >= 0 && b.t >= 0 && b.r <= c.vw + 0.5 && b.b <= c.vh + 0.5
+    && b.t >= c.stage.t - 0.5 && b.b <= c.stage.b + 0.5;
+  let c = await chrome();
+  check(`${tag}: card ends inside the viewport under the 56 px toolbar`, c.cardBottom <= c.vh + 0.5, true);
+  check(`${tag}: stage starts below the toolbar`, c.stage.t >= 55.5, true);
+  check(`${tag}: dock fully visible`, visible(c.dock, c), true);
+  check(`${tag}: level indicator fully visible`, visible(c.levels, c), true);
+  if (vp.size.width <= 560) check(`${tag}: compact level switcher on the phone`, c.levels.h <= 52 && c.levels.w <= 130, true);
+  await shot(page, vp, '08-panel-0-house');
+  // Rack, then faceplate: interactive markers ≥ 44 px, deeper each time.
+  const markers = (region) => page.evaluate((rid) => {
+    const c = window.__card;
+    const r = c._focusRegions.find((x) => x.id === rid);
+    return [...c.renderRoot.querySelectorAll('[data-hp="device"]')].map((el) => {
+      const d = c._renderDevices.find((x) => x.id === el.dataset.id);
+      const p = d ? c._pos(d) : null;
+      const inside = !!p && p.x / 1000 >= r.x && p.x / 1000 <= r.x + r.w && p.y / 1000 >= r.y && p.y / 1000 <= r.y + r.h;
+      const cs = getComputedStyle(el);
+      return {
+        id: el.dataset.id, inside, w: el.getBoundingClientRect().width,
+        hidden: el.classList.contains('fork-hidden'), outside: el.classList.contains('fork-outside'),
+        ghost: el.classList.contains('presentation-ghost'), opacity: Number(cs.opacity),
+      };
+    });
+  }, region);
+  await page.evaluate(() => window.__card._fitRoom('living'));
+  await settle(page, 300);
+  await page.evaluate(() => window.__card._fitRegion('rack'));
+  await settle(page, 350);
+  const rackZoom = (await state(page)).zoom;
+  let m = await markers('rack');
+  const rackTargets = m.filter((x) => x.inside && !x.hidden && !x.ghost);
+  if (process.env.FORK_DEBUG) console.log(tag, rackZoom, JSON.stringify(rackTargets));
+  check(`${tag}: rack markers are ≥ 44 px`, rackTargets.length > 0 && rackTargets.every((x) => x.w >= 43.5), true);
+  const out = m.filter((x) => !x.inside && !x.hidden);
+  check(`${tag}: markers outside the rack dimmed (25 %) and marked inert`, out.length > 0
+    && out.every((x) => x.outside && Math.abs(x.opacity - 0.25) < 0.01), true);
+  c = await chrome();
+  check(`${tag}: step-out and dock visible at the rack`, visible(c.stepout, c) && visible(c.dock, c), true);
+  await shot(page, vp, '08-panel-1-rack');
+  await page.evaluate(() => window.__card._fitRegion('udm'));
+  await settle(page, 350);
+  const udmZoom = (await state(page)).zoom;
+  check(`${tag}: faceplate lands visibly deeper than the rack (≥ 1.35×)`, udmZoom >= rackZoom * 1.349, true);
+  m = await markers('udm');
+  const ports = m.filter((x) => x.inside && !x.hidden && !x.ghost);
+  check(`${tag}: faceplate ports are ≥ 44 px`, ports.length >= 6 && ports.every((x) => x.w >= 43.5), true);
+  await shot(page, vp, '08-panel-2-faceplate');
+  // A tap on a dimmed outside marker falls through (no card, no callout).
+  const poe = await centerOf(page, '[data-hp="device"][data-id="m-poe"]');
+  const sheetBox = await centerOf(page, '[data-hp="fork-sheet"]');
+  const underSheet = !!sheetBox && poe && Math.abs(poe.y - sheetBox.y) < sheetBox.h / 2;
+  if (poe && !underSheet && poe.x > 0 && poe.y > 0 && poe.x < c.vw && poe.y < c.vh) {
+    await tap(page, vp, poe);
+    await sleep(450);
+    await settle(page, 100);
+    check(`${tag}: outside marker is inert`, await page.evaluate(() => !window.__card._infoCard
+      && !window.__card.renderRoot.querySelector('[data-hp="fork-callout"]')), true);
+  }
+  // Pan across the faceplate (overflow is reached by panning).
+  const st = c.stage;
+  if (vp.touch) {
+    await page.evaluate(() => 0);
+  }
+  await page.mouse.move(st.l + st.w * 0.5, st.t + st.h * 0.6);
+  // Step out: rack again, outside markers come back on the way out of regions.
+  await tap(page, vp, await centerOf(page, '[data-hp="fork-stepout"]'));
+  await settle(page, 300);
+  await tap(page, vp, await centerOf(page, '[data-hp="fork-stepout"]'));
+  await settle(page, 300);
+  m = await markers('rack');
+  check(`${tag}: step out to the room restores the rack's markers`, m.filter((x) => x.inside && !x.hidden).every((x) => !x.outside), true);
+  await shot(page, vp, '08-panel-3-back-room');
+}
+
+async function scenarioOnePane(page, vp) {
+  const tag = `${vp.key}.onepane`;
+  const root = (fn, arg) => page.evaluate(fn, arg);
+  // B: everyday chrome
+  const header = await root(() => {
+    const r = window.__card.renderRoot;
+    const shown = (sel) => [...r.querySelectorAll(sel)].some((el) => el.getClientRects().length > 0
+      && getComputedStyle(el).display !== 'none' && el.offsetParent !== null);
+    return {
+      modes: shown('[data-hp="mode-tab"]'), settings: shown('[data-hp="settings"]'), pdf: shown('[data-hp="pdf"]'),
+      support: shown('[data-hp="support"]'), eye: shown('[data-hp="hidden-devices"]'),
+      menu: shown('[data-hp="header-menu"]'), fit: shown('[data-hp="zoom-fit"]'),
+      zoomIn: shown('[data-hp="zoom-in"]'), summary: shown('.summary-control'),
+      kioskMenu: shown('.fork-kiosk-menu [data-hp="header-menu"]'),
+    };
+  });
+  if (!PANEL) {
+    check(`${tag}: View shows no editor tabs or admin buttons`,
+      [header.modes, header.settings, header.pdf, header.support, header.eye], [false, false, false, false, false]);
+    check(`${tag}: one menu button and Fit all stay`, [header.menu, header.fit], [true, true]);
+    check(`${tag}: zoom ± only with a mouse on a wide screen`, header.zoomIn, !vp.touch && vp.size.width >= 900);
+    await tap(page, vp, await centerOf(page, '[data-hp="header-menu"]'));
+    await settle(page, 120);
+    const items = await root(() => [...window.__card.renderRoot.querySelectorAll('[data-hp="header-menu-item"]')].map((b) => b.dataset.id));
+    check(`${tag}: editors live in the menu`, ['mode-plan', 'mode-devices', 'mode-decor'].every((id) => items.includes(id)), true);
+    await shot(page, vp, '09-onepane-0-menu');
+    await page.keyboard.press('Escape');
+    await settle(page, 80);
+  } else {
+    check(`${tag}: kiosk shows no floating summary buttons`, header.summary, false);
+    await shot(page, vp, '09-onepane-0-kiosk');
+  }
+  // D: oven reads 0 while off → no badge
+  const ovenBadge = await root(() => !!window.__card.renderRoot
+    .querySelector('[data-hp="device"][data-id="m-oven"] .value-badge'));
+  check(`${tag}: oven display 0 shows no badge`, ovenBadge, false);
+  // C: one marker, extras in its callout
+  await page.evaluate(() => window.__card._fitRoom('living'));
+  await settle(page, 300);
+  await tap(page, vp, await centerOf(page, '[data-hp="device"][data-id="m-lamp"]'));
+  await settle(page, 150);
+  const lamp = await root(() => {
+    const el = window.__card.renderRoot.querySelector('[data-hp="fork-callout"]');
+    return el ? {
+      actions: [...el.querySelectorAll('[data-hp="fork-callout-action"]')].map((b) => b.dataset.entity),
+      rows: [...el.querySelectorAll('[data-hp="fork-callout-row"]')].map((r) => ({
+        entity: r.dataset.entity, toggle: !!r.querySelector('[data-hp="fork-callout-row-toggle"]'),
+        state: r.querySelector('.fork-callout-row-state')?.textContent.trim() })),
+      box: (() => { const b = el.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; })(),
+    } : null;
+  });
+  check(`${tag}: lantern callout offers its 6 scripts`, lamp?.actions.length, 6);
+  check(`${tag}: extra entity rows, toggle only where toggleable`, lamp?.rows.map((r) => [r.entity, r.toggle]),
+    [['select.lamp_scene', false], ['switch.lamp_fx', true], ['number.lamp_speed', false]]);
+  const vpSize = page.viewportSize();
+  check(`${tag}: callout fits on screen`, !!lamp && lamp.box[0] >= 0 && lamp.box[2] <= vpSize.width && lamp.box[1] >= 0 && lamp.box[3] <= vpSize.height, true);
+  await shot(page, vp, '09-onepane-1-lantern-callout');
+  const n0 = await page.evaluate(() => window.__serviceCalls.length);
+  await tap(page, vp, await centerOf(page, '[data-hp="fork-callout-action"][data-entity="script.lanterns_candle"]'));
+  await settle(page, 100);
+  await tap(page, vp, await centerOf(page, '[data-hp="fork-callout-row"][data-entity="switch.lamp_fx"] [data-hp="fork-callout-row-toggle"]'));
+  await settle(page, 100);
+  check(`${tag}: callout script and row toggle call the right services`,
+    await page.evaluate((k) => window.__serviceCalls.slice(k).map((x) => [x[0], x[1], x[2]?.entity_id]), n0),
+    [['script', 'turn_on', 'script.lanterns_candle'], ['switch', 'toggle', 'switch.lamp_fx']]);
+  await page.keyboard.press('Escape');
+  // A: down port at the faceplate
+  await page.evaluate(() => window.__card._fitRegion('udm'));
+  await settle(page, 350);
+  const port6 = await root(() => {
+    const el = window.__card.renderRoot.querySelector('[data-hp="device"][data-id="m-port-6"]');
+    return { ghost: el?.classList.contains('presentation-ghost'), badge: !!el?.querySelector('.value-badge'),
+      text: el?.textContent.trim() };
+  });
+  check(`${tag}: port with no link (10) looks disconnected, no badge`, [port6.ghost, port6.badge, port6.text], [true, false, '']);
+  await tap(page, vp, await centerOf(page, '[data-hp="device"][data-id="m-port-6"]'));
+  await settle(page, 150);
+  const downCallout = await root(() => {
+    const el = window.__card.renderRoot.querySelector('[data-hp="fork-callout"]');
+    return el ? { down: !!el.querySelector('[data-hp="fork-callout-down"]'), text: el.textContent.replace(/\s+/g, ' ').trim() } : null;
+  });
+  check(`${tag}: down port callout shows "down" visually, never 10M`, !!downCallout?.down && !/10\s*M/.test(downCallout.text), true);
+  await shot(page, vp, '09-onepane-2-down-port');
+  await page.keyboard.press('Escape');
+}
+
+async function scenarioPhoneRoom(page, vp) {
+  const tag = `${vp.key}.room`;
+  const narrow = vp.size.width <= 560;
+  await shot(page, vp, '10-room-0-level');
+  await tap(page, vp, await screenOfPlan(page, 0.12, 0.42));
+  await sleep(420);
+  await settle(page, 300);
+  const s = await state(page);
+  check(`${tag}: tap fits the living room`, s.focus, { kind: 'room', id: 'living' });
+  const fill = await page.evaluate(() => {
+    const c = window.__card;
+    const room = c._spaceModel().rooms.find((r) => r.id === 'living');
+    const b = c._roomFitBounds(room, c._spaceModel());
+    const v = c._view;
+    const st = c.renderRoot.querySelector('.stage');
+    const i = c._chromeInsets();
+    const W = st.clientWidth - i.left - i.right, H = st.clientHeight - i.top - i.bottom;
+    const ppu = st.clientWidth / v.w;
+    return Math.max((b.w * ppu) / W, (b.h * ppu) / H);
+  });
+  check(`${tag}: the focused room fills the free stage edge to edge (≥ 0.94)`, fill >= 0.94, true);
+  const m = await page.evaluate(() => [...window.__card.renderRoot.querySelectorAll('[data-hp="device"]')]
+    .filter((el) => getComputedStyle(el).visibility !== 'hidden' && !el.classList.contains('fork-hidden'))
+    .map((el) => ({ id: el.dataset.id, w: el.getBoundingClientRect().width,
+      focused: el.classList.contains('fork-focused'), outside: el.classList.contains('fork-outside'),
+      label: el.querySelector('.fork-label')?.textContent.trim() || '' })));
+  const inRoom = m.filter((x) => x.focused);
+  check(`${tag}: focused-room markers are ≥ 44 px`, inRoom.length >= 5 && inRoom.every((x) => x.w >= 43.5), true);
+  check(`${tag}: focused-room markers carry a 1–2 word name`, inRoom.filter((x) => !['m-candles'].includes(x.id))
+    .every((x) => x.label && x.label.split(' ').length <= 2), true);
+  check(`${tag}: everything outside the room is dimmed and inert`, m.filter((x) => !x.focused).every((x) => x.outside), true);
+  const sheet = await page.evaluate(() => {
+    const el = window.__card.renderRoot.querySelector('[data-hp="fork-sheet"]');
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { rows: el.querySelectorAll('[data-hp="fork-sheet-row"]').length, bottom: r.bottom, top: r.top };
+  });
+  check(`${tag}: dense room on a phone gets the in-map device sheet`, !!sheet, narrow);
+  const chrome = await page.evaluate(() => {
+    const r = window.__card.renderRoot;
+    const box = (sel) => { const b = r.querySelector(sel)?.getBoundingClientRect(); return b ? [b.left, b.top, b.right, b.bottom] : null; };
+    return { dock: box('[data-hp="fork-dock"]'), levels: box('[data-hp="fork-levels"]'), vw: innerWidth, vh: innerHeight };
+  });
+  const inside = (b) => !!b && b[0] >= 0 && b[1] >= 0 && b[2] <= chrome.vw + 0.5 && b[3] <= chrome.vh + 0.5;
+  check(`${tag}: dock and levels fully on screen`, inside(chrome.dock) && inside(chrome.levels), true);
+  if (narrow) check(`${tag}: phone level switcher is a compact pill docked bottom-right`,
+    chrome.levels[2] > chrome.vw - 30 && chrome.levels[3] > chrome.vh - 80 && chrome.levels[3] - chrome.levels[1] <= 52, true);
+  await shot(page, vp, '10-room-1-living');
+  // Tap a device (via the sheet on the phone, the marker elsewhere) → callout.
+  if (sheet) await tap(page, vp, await centerOf(page, '[data-hp="fork-sheet-row"][data-id="m-lamp"]'));
+  else await tap(page, vp, await centerOf(page, '[data-hp="device"][data-id="m-lamp"]'));
+  await settle(page, 200);
+  const callout = await page.evaluate(() => {
+    const el = window.__card.renderRoot.querySelector('[data-hp="fork-callout"]');
+    const b = el?.getBoundingClientRect();
+    return el ? { id: el.dataset.id, box: [b.left, b.top, b.right, b.bottom] } : null;
+  });
+  check(`${tag}: device tap opens its popup`, callout?.id, 'm-lamp');
+  const stageTop = (await centerOf(page, '.stage')).y - (await centerOf(page, '.stage')).h / 2;
+  check(`${tag}: popup fully on screen, inside the stage (not under the toolbar)`, !!callout && callout.box[0] >= 0
+    && callout.box[1] >= stageTop - 0.5 && callout.box[2] <= chrome.vw + 0.5 && callout.box[3] <= chrome.vh + 0.5, true);
+  await shot(page, vp, '10-room-2-popup');
+  await page.keyboard.press('Escape');
+  await settle(page, 100);
+  await tap(page, vp, await centerOf(page, '[data-hp="fork-stepout"]'));
+  await settle(page, 300);
+  check(`${tag}: back to the level`, (await state(page)).focus, null);
+  check(`${tag}: no sheet, nothing dimmed at the level`, await page.evaluate(() =>
+    !window.__card.renderRoot.querySelector('[data-hp="fork-sheet"]')
+    && !window.__card.renderRoot.querySelector('.dev.fork-outside')), true);
+  await shot(page, vp, '10-room-3-back');
+}
+
 const RUN = [
   ['stairs', scenarioStairs],
   ['levels', scenarioLevels],
@@ -588,6 +870,9 @@ const RUN = [
   ['dock', scenarioDock],
   ['ghost', scenarioGhost],
   ['reveal', scenarioReveal],
+  ['panel', scenarioPanel],
+  ['onepane', scenarioOnePane],
+  ['room', scenarioPhoneRoom],
 ];
 
 for (const vp of VIEWPORTS) {
@@ -595,9 +880,11 @@ for (const vp of VIEWPORTS) {
   const { page, browser } = await launch(vp.size, 1, [],
     vp.touch ? { hasTouch: true } : {});
   try {
-    await setup(page);
+    await setup(page, CARD_OPTIONS, vp);
     for (const [name, fn] of RUN) {
       if (!want(name)) continue;
+      if (PANEL && name === 'authoring') continue;      // writer tools: not in kiosk
+      if (!PANEL && name === 'panel') continue;
       try { await reset(page); await fn(page, vp); } catch (error) {
         check(`${vp.key}.${name}: threw`, String(error?.stack || error), 'no exception');
       }

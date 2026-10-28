@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## v1.82.0-matt.2 — 2026-10-28
+
+Fork `matt/single-pane` (see FORK.md).
+
+- Kiosk card height respects the dashboard toolbar above it: dock, zoom badge
+  and bottom chrome stay on screen; compact chrome on narrow stages.
+- Focus regions land deeper than their parent and deep enough for 44 px
+  marker targets; markers outside a focused region are dimmed and inert.
+- Everyday View: editors and admin tools live in one menu; kiosk gets one
+  round menu button instead of the summary buttons. `fork_menu: false`
+  restores the upstream header. (§10)
+- Inactive markers: `inactive_presentation: "ghost"` and
+  `hide_badge_when_inactive` via `state_source.active_states` (a port without
+  link looks disconnected, never "10M"). (§11)
+- Callout `actions` (script/scene buttons) and `extra_entities` rows. (§12)
+- `badge_hide_when` hides fake badge values (0, unknown, `primary_off`). (§13)
+- Phone room view: a focused room fills the stage, everything outside it is
+  dimmed and inert, focused markers are ≥ 44 px with 1–2 word names, compact
+  bottom-right level pill, and an in-map device sheet for dense rooms
+  (`room_sheet`). (§14)
+
 ## v1.82.0-matt.1 — 2026-10-28
 
 Fork `mabarbanel-ttw/houseplan-card`, branch `matt/single-pane`, on top of

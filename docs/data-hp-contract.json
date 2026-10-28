@@ -6,6 +6,12 @@
     "additionsAreCompatible": true
   },
   "hooks": {
+    "fork-sheet": { "elements": ["section"], "since": "1.82.0-matt.2", "audience": ["styling", "test"] },
+    "fork-sheet-row": { "elements": ["button"], "since": "1.82.0-matt.2", "audience": ["styling", "test"] },
+    "fork-callout-down": { "elements": ["span"], "since": "1.82.0-matt.2", "audience": ["styling", "test"] },
+    "fork-callout-row": { "elements": ["div"], "since": "1.82.0-matt.2", "audience": ["styling", "test"] },
+    "fork-callout-row-toggle": { "elements": ["button"], "since": "1.82.0-matt.2", "audience": ["styling", "test"] },
+    "fork-callout-action": { "elements": ["button"], "since": "1.82.0-matt.2", "audience": ["styling", "test"] },
     "fork-levels": { "elements": ["nav"], "since": "1.82.0-matt.1", "audience": ["styling", "test"] },
     "fork-level": { "elements": ["button"], "since": "1.82.0-matt.1", "audience": ["styling", "test"] },
     "fork-stepout": { "elements": ["button"], "since": "1.82.0-matt.1", "audience": ["styling", "test"] },

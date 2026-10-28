@@ -2119,6 +2119,20 @@ MARKER_SCHEMA = vol.Schema(
         # Fork (FORK.md §6): "not in HA" presentation of a marker.
         vol.Optional("presentation"): vol.Any("ghost", None),
         vol.Optional("reveal"): _REVEAL,
+        # matt.2 (FORK.md §11–§13): one marker per physical device.
+        vol.Optional("inactive_presentation"): vol.Any("ghost", None),
+        vol.Optional("hide_badge_when_inactive"): vol.Any(bool, None),
+        vol.Optional("badge_hide_when"): vol.Any(
+            None, vol.All([vol.All(str, vol.Length(min=1, max=32))], vol.Length(max=8)),
+        ),
+        vol.Optional("actions"): vol.Any(None, vol.All([vol.Schema({
+            vol.Required("entity"): vol.All(str, vol.Match(r"^(script|scene)\.[A-Za-z0-9_]+$")),
+            vol.Optional("icon"): vol.Any(None, vol.All(str, vol.Length(max=64))),
+            vol.Optional("name"): vol.Any(None, vol.All(str, vol.Length(max=64))),
+        }, extra=vol.ALLOW_EXTRA)], vol.Length(max=12))),
+        vol.Optional("extra_entities"): vol.Any(
+            None, vol.All([vol.All(str, vol.Match(r"^[a-z0-9_]+\.[a-z0-9_]+$"))], vol.Length(max=16)),
+        ),
         vol.Optional("room_id"): vol.Any(str, None),
         # Keep in sync with DISPLAY_MODES in src/logic.ts. `ripple` is no longer
         # offered, but remains accepted while old stores migrate to icon_ripple.

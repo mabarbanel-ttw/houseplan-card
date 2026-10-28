@@ -1349,5 +1349,6 @@
   "fork.callout_more": "Plus",
   "fork.callout_toggle": "Basculer",
   "tap.callout": "Bulle",
-  "fork.ghost": "Hors HA"
+  "fork.ghost": "Hors HA",
+  "fork.devices": "Appareils"
 }

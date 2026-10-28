@@ -6,6 +6,7 @@
  *  2) LEGACY fallback — baked-in country-house data (src/data/*), coordinates in a 1489×1053 canvas.
  * The icon layout is stored on the server (houseplan/layout/*), fallback — localStorage.
  */
+import { forkMarkerCarry } from './fork-marker';
 import { html, svg, nothing, TemplateResult } from 'lit';
 import { LazyBackupArchiveClient } from './backup-archive-lazy';
 import type { BackupExportState, ArchiveSummary } from './backup-archive-client';
@@ -337,7 +338,7 @@ import {
   rewriteMarkerRoomReferences,
 } from './room-reference-transaction';
 
-const CARD_VERSION = '1.82.0-matt.1';
+const CARD_VERSION = '1.82.0-matt.2';
 
 // #474: the editor imports the furniture artwork statically and hands it to
 // the page runtime the moment this chunk evaluates — before the loader's
@@ -7696,6 +7697,7 @@ public async _saveMarker(): Promise<void> {
         ...markerBatteryFields(dlg.hideBattery),
         ...markerSignalFields(dlg.hideSignal),
         ...(dlg.ghost ? { presentation: 'ghost' as const } : {}),
+        ...forkMarkerCarry(previousMarker ?? markers.find((m0: Marker) => m0.id === id)),
         glow_radius_cm: (() => {
           const v = strictNumber(dlg.glowRadius);
           if (v == null || v <= 0) return null;
@@ -11273,6 +11275,7 @@ public _markerDraft(d: NonNullable<HouseplanEditorHostPort['_markerDialog']>): M
       ...markerBatteryFields(d.hideBattery),
       ...markerSignalFields(d.hideSignal),
       ...(d.ghost ? { presentation: 'ghost' as const } : {}),
+      ...forkMarkerCarry(previous),
       glow_radius_cm: (() => {
         const value = strictNumber(d.glowRadius);
         if (value == null || value <= 0) return null;

@@ -307,15 +307,16 @@ import { stairList, stairOutline, type Stair } from './stairs';
 import {
   focusChildren, focusParent, focusPath, focusRegionBounds, focusRegionFromView, focusRegionList,
   parseReveal, revealShown, type RevealContext,
-  clientToPlanNorm, inflateToContext, insetCameraTarget, newFocusRegionId, NO_INSETS, regionRoomId, resolveFocusTap,
+  clientToPlanNorm, inflateToContext, insetCameraTarget, markerTouchZoom, nestedAway, regionContains, regionZoom, newFocusRegionId, NO_INSETS, regionRoomId, resolveFocusTap,
   stairLanding,
   type FocusNode, type FocusRegion, type StageInsets,
 } from './fork-focus';
 import {
-  calloutToggleEntity, forkCardOptions, levelGlyphs, renderCallout, renderLevelIndicator,
+  calloutToggleEntity, forkCardOptions, levelGlyphs, renderCallout, renderLevelIndicator, renderRoomSheet,
   renderSceneDock, renderStepOut, sceneDockService,
   type CalloutModel, type ForkCardOptions, type SceneDockItem,
 } from './fork-chrome';
+import { badgeSuppressed, markerActions, markerExtraEntities, markerInactive, rowToggleable } from './fork-marker';
 import { cleanFloorForRoom, type CleanFloorResult } from './clean-floor';
 import {
   floorGeometryKeyReader, floorPoolEntry, openingWallIndexKey, physicalBodiesKey, sunGeometryKey, wallUnionKey,
@@ -358,7 +359,7 @@ import { isoWallMaterialVars, parseCssColor } from './iso-materials'; import { I
 import { renderIsoTileShadow } from './iso-tiles';
 import { displayVersion } from './card-version';
 import { ConfigFingerprintPass } from './config-fingerprint-pass';
-const CARD_VERSION = '1.82.0-matt.1';
+const CARD_VERSION = '1.82.0-matt.2';
 const EDITOR_RETRY_ASSET = '__HOUSEPLAN_EDITOR_RETRY_ASSET__';
 const ISO_RETRY_ASSET = '__HOUSEPLAN_ISO_RETRY_ASSET__';
 const PDF_RETRY_ASSET = '__HOUSEPLAN_PDF_RETRY_ASSET__';
@@ -2071,6 +2072,9 @@ export class HouseplanCard extends LitElement {
   private _roHdr?: ResizeObserver;
   private _onWinResize?: () => void;
   private _hdrH = 118; // measured px above the stage (see the observer in updated())
+  /** matt.2: kiosk = no own header, but the dashboard's toolbar above the
+   *  card (HA's 56 px app bar in a panel view) still eats viewport height. */
+  private _forkKioskAbove = 0;
   /** HP-1552: first-open boot veil. In normal (non-kiosk) mode the stage is
    *  calc(100dvh - _hdrH), and _hdrH is measured from HA's chrome — which
    *  finishes loading AFTER the card's first paint, so every late panel
@@ -2213,6 +2217,9 @@ export class HouseplanCard extends LitElement {
   private _calloutOutside: ((event: Event) => void) | null = null;
   /** Fork §5: dock button that just ran (brief press feedback). */
   private _forkDockPressed: string | null = null;
+  /** matt.2 §14: marker highlighted from the room sheet. */
+  private _forkSheetHl: string | null = null;
+  private _forkSheetHlTimer?: number;
   /** Native HA more-info last opened by this card, for disabled mid-dialog cleanup. */
   private _nativeMoreInfoEntity: string | null = null;
   private _deviceInbox: DeviceInboxDialogState | null = null;
@@ -2633,6 +2640,7 @@ export class HouseplanCard extends LitElement {
   static properties = {
     _tabDrag: { state: true },
     _hdrH: { state: true },
+    _forkKioskAbove: { state: true },
     _booting: { state: true },
     _bootFading: { state: true },
     _bootSoft: { state: true },
@@ -2710,6 +2718,7 @@ export class HouseplanCard extends LitElement {
     _focusNode: { state: true },
     _callout: { state: true },
     _forkDockPressed: { state: true },
+    _forkSheetHl: { state: true },
     _deviceInbox: { state: true },
     _rulesDialog: { state: true },
     _settingsDialog: { state: true },
@@ -4339,7 +4348,17 @@ export class HouseplanCard extends LitElement {
     }
     this._captureRenderDeviceSnapshot();
   }
+  /**
+   * matt.2 (FORK.md §10): View/kiosk show no editor or admin tools; they live
+   * in the one header menu (the upstream phone menu, used at every width).
+   * Card option `fork_menu: false` restores the upstream header.
+   */
+  private get _forkCompactView(): boolean {
+    return this._mode === 'view' && (this._config as any)?.fork_menu !== false;
+  }
+
   protected updated(changed: PropertyValues): void {
+    this.toggleAttribute('data-fork-view-compact', this._forkCompactView);
     this._toastPresentation.refresh();
     if (this._tip?.room && this._hoverRoom) this._tip.co2 = this._roomCo2(this._hoverRoom.room);
     this._syncCycleTimer();
@@ -4380,6 +4399,9 @@ export class HouseplanCard extends LitElement {
         // stage one pixel shorter after an editor collapse and made the fitted
         // viewport drift; changing stage height cannot feed back into its top.
         if (t >= 0 && t !== this._hdrH) this._hdrH = t;
+        // matt.2: in kiosk the stage starts at the card top, so `t` is exactly
+        // the bounded toolbar budget above the card.
+        if (this._config?.kiosk && t >= 0 && t !== this._forkKioskAbove) this._forkKioskAbove = t;
         // DEV-B703-01: chrome that lands after the settle (or a window
         // resize with a live card) must not poison the next warm mount —
         // the memo follows the live settled geometry.
@@ -6006,7 +6028,8 @@ export class HouseplanCard extends LitElement {
         this._closeCallout();
         // Dismissing is the whole meaning of a plan tap outside the callout: it
         // must not also fit a room or fly in. Another marker still takes it.
-        if (!device && path.includes(this._stageEl as EventTarget)) {
+        const chrome = path.some((node) => (node as Element)?.hasAttribute?.('data-scene-surface'));
+        if (!device && !chrome && path.includes(this._stageEl as EventTarget)) {
           this._clearPlanTapSequence();
           this._suppressClick = true;
           // Released on the next tick after this press ends, like a pan.
@@ -6069,6 +6092,24 @@ export class HouseplanCard extends LitElement {
     }
     const state = format(st);
     if (value && value === state) value = '';
+    // matt.2 §11–§13: inactive look, suppressed values, extra rows/actions.
+    const inactive = markerInactive(hass, d.marker);
+    const badgeSrc = d.marker?.value_badge?.source as any;
+    if (value && badgeSuppressed(hass, d.marker, badgeSrc?.entity_id
+      ? (badgeSrc.kind === 'entity_attribute' ? hass?.states?.[badgeSrc.entity_id]?.attributes?.[badgeSrc.attribute]
+        : hass?.states?.[badgeSrc.entity_id]?.state) : undefined, d.primary)) value = '';
+    const rows = markerExtraEntities(d.marker).map((entity) => {
+      const row = this.hass?.states?.[entity] ?? hass?.states?.[entity];
+      return {
+        entity,
+        name: String(row?.attributes?.friendly_name || entity),
+        state: format(row) || '—',
+        toggle: rowToggleable(entity) ? {
+          on: row?.state === 'on',
+          available: !!row && row.state !== 'unavailable' && row.state !== 'unknown',
+        } : null,
+      };
+    });
     const toggleEntity = calloutToggleEntity(d.primary);
     const toggleState = toggleEntity ? hass?.states?.[toggleEntity] : null;
     const pos = this._pos(d);
@@ -6098,7 +6139,19 @@ export class HouseplanCard extends LitElement {
         const anchor = (left / 100) * width;
         return Math.max(half, Math.min(width - half, anchor)) - anchor;
       })(),
-      below: top < 34,
+      ...(() => {
+        // round 4: open on the side with more room and never past the free stage.
+        const H = this._stageEl?.clientHeight || 0;
+        const insets = this._chromeInsets();
+        const anchor = (top / 100) * H;
+        const above = anchor - insets.top - 34;
+        const below = H - insets.bottom - anchor - 34;
+        const useBelow = below > above;
+        return { below: useBelow, maxHeight: Math.max(120, Math.floor(useBelow ? below : above)) };
+      })(),
+      inactive,
+      actions: markerActions(d.marker).filter((item) => !!this.hass?.states?.[item.entity]),
+      rows,
     };
   }
 
@@ -6116,6 +6169,13 @@ export class HouseplanCard extends LitElement {
       },
       more: (entity) => { this._closeCallout(); this._openMoreInfo(entity); },
       close: () => this._closeCallout(),
+      run: (entity) => {
+        const service = sceneDockService(entity);
+        if (!service) return;
+        this._startDevicePressFeedback(model.id);
+        this.hass.callService(service.domain, service.service, { entity_id: entity })
+          .catch((e: any) => this._showToast(this._t('toast.error', { err: this._errText(e) })));
+      },
     })}</div>`;
   }
 
@@ -6576,8 +6636,9 @@ export class HouseplanCard extends LitElement {
     const baseFit = fitView(base, stage.clientWidth / stage.clientHeight);
     // Fork §2: identical to roomFitCameraTarget with no on-map chrome; with
     // the level indicator/scene dock the room is fitted beside them.
+    // matt.2 (round 4): a focused room fills the free stage edge to edge.
     const targetOf = (fitBounds: NonNullable<typeof bounds>) =>
-      this._cameraTargetFor(fitBounds, baseFit, 0.8);
+      this._cameraTargetFor(fitBounds, baseFit, this._mode === 'view' ? 0.96 : 0.8);
     let target = targetOf(bounds);
     const runtime = this._isoSceneRuntime, entries = this._renderIsoScene?.overlayFitEntries;
     if (target && this._effectiveProjection() === 'iso' && runtime && entries?.length) {
@@ -6629,13 +6690,14 @@ export class HouseplanCard extends LitElement {
    */
   private _flyToBounds(
     bounds: { x: number; y: number; w: number; h: number }, safeFraction = 0.8, animate = true,
+    zoom?: number,
   ): boolean {
     if (this._mode !== 'view') return false;
     const stage = this._stageEl;
     if (!stage || stage.clientWidth <= 0 || stage.clientHeight <= 0) return false;
     const base = this._baseVb();
     const baseFit = fitView(base, stage.clientWidth / stage.clientHeight);
-    const target = this._cameraTargetFor(bounds, baseFit, safeFraction);
+    const target = this._cameraTargetFor(bounds, baseFit, safeFraction, zoom);
     if (!target) return false;
     const current = this._cameraState();
     const clamp = roomFitClampFrame(baseFit, current.viewBox, target.viewBox, bounds);
@@ -6672,9 +6734,53 @@ export class HouseplanCard extends LitElement {
     this._roomFocus = null;
     this._regionIntent = { spaceId: this._space, regionId };
     this._focusNode = { kind: 'region', id: regionId };
-    this._flyToBounds(bounds, 0.8, animate);
+    // matt.2: a region lands deeper than its parent and deep enough for
+    // 44 px marker targets; what does not fit is reached by panning.
+    this._flyToBounds(bounds, 0.8, animate, this._regionZoomFor(region));
     this.requestUpdate();
     return true;
+  }
+
+  /** matt.2: zoom of a focus region (see `regionZoom`). */
+  private _regionZoomFor(region: FocusRegion, depth = 0): number | undefined {
+    const stage = this._stageEl;
+    const space = this._spaceModel();
+    if (!stage || stage.clientWidth <= 0 || stage.clientHeight <= 0 || !space || depth > 8) return undefined;
+    const base = this._baseVb();
+    const baseFit = fitView(base, stage.clientWidth / stage.clientHeight);
+    const bounds = this._planRectBounds(focusRegionBounds(region, NORM_W));
+    if (!bounds) return undefined;
+    const regions = this._focusRegions;
+    const parent = focusParent({ kind: 'region', id: region.id }, regions);
+    let parentZoom = 0;
+    if (parent?.kind === 'region') {
+      const p = regions.find((item) => item.id === parent.id);
+      parentZoom = p ? this._regionZoomFor(p, depth + 1) ?? 0 : 0;
+    } else if (parent?.kind === 'room') {
+      const room = space.rooms.find((item) => item.id === parent.id);
+      const rb = room ? this._roomFitBounds(room, space) : null;
+      parentZoom = rb ? this._cameraTargetFor(rb, baseFit, 0.8)?.zoom ?? 0 : 0;
+    }
+    // Interactive markers of this level: inside the region, not inside one of
+    // its own (still hidden) child regions, not ghosts.
+    const path = focusPath({ kind: 'region', id: region.id }, regions);
+    const cfgSize = this._config?.icon_size ?? 2.5;
+    const devicePct = effectiveDeviceBaseSize(cfgSize > 8 ? 2.5 : cfgSize) * (this._kioskScale.icon || 1);
+    const unit = iconUnit(space);
+    let markerZoom = 0;
+    for (const d of this._renderDevices) {
+      if (d.space !== this._space || d.hidden || d.marker?.presentation === 'ghost') continue;
+      const pos = this._pos(d);
+      const point: [number, number] = [pos.x / NORM_W, pos.y / NORM_W];
+      if (!regionContains(region, point) || nestedAway(point, path, regions)) continue;
+      const scale = Number(d.marker?.size) > 0 ? Number(d.marker!.size) : 1;
+      markerZoom = Math.max(markerZoom, markerTouchZoom(devicePct, unit, scale, stage.clientWidth, baseFit.w));
+    }
+    return regionZoom({
+      bounds, baseFitW: baseFit.w, stageWidth: stage.clientWidth, stageHeight: stage.clientHeight,
+      insets: this._chromeInsets(), safeFraction: 0.8, parentZoom, markerZoom,
+      minZoom: HouseplanCard.ZOOM_MIN, maxZoom: HouseplanCard.ZOOM_MAX,
+    });
   }
 
   /**
@@ -6789,7 +6895,61 @@ export class HouseplanCard extends LitElement {
     }
     // §7: the whole level shows room devices at reduced density (icon only, smaller).
     if (this._forkDensity() < 1) classes.push('fork-reduced');
+    // matt.2: with a room or region focused, markers outside it are dimmed
+    // and inert; markers inside are touch-sized and named.
+    const focus = this._forkInFocus(d, pos);
+    if (focus === 'out') classes.push('fork-outside');
+    else if (focus === 'in') classes.push('fork-focused');
+    if (this._forkSheetHl === d.id) classes.push('fork-hl');
     return classes.join(' ');
+  }
+
+  /** matt.2: is this marker inside the current room/region focus? null = no focus. */
+  private _forkInFocus(d: DevItem, pos: { x: number; y: number }): 'in' | 'out' | null {
+    if (this._mode !== 'view' || !this._focusNode) return null;
+    const region = this._forkFocusRegion();
+    if (region) return regionContains(region, [pos.x / NORM_W, pos.y / NORM_W]) ? 'in' : 'out';
+    const node = this._focusNode;
+    if (node.kind !== 'room') return null;
+    if (d.marker?.room_id) return d.marker.room_id === node.id ? 'in' : 'out';
+    const room = this._spaceModel()?.rooms.find((item) => item.id === node.id);
+    if (!room) return null;
+    return this._pointInRoom([pos.x, pos.y], room) ? 'in' : 'out';
+  }
+
+  /** matt.2: 1–2 word name painted under a focused marker (UI copy rule). */
+  private _forkShortName(d: DevItem): string {
+    const words = String(d.name || '').trim().split(/\s+/).filter(Boolean).slice(0, 2).join(' ');
+    return words.length > 14 ? `${words.slice(0, 13)}…` : words;
+  }
+
+  /** matt.2: the focused region, when the fly-in position is a region. */
+  private _forkFocusRegion(): FocusRegion | null {
+    const node = this._focusNode;
+    if (this._mode !== 'view' || node?.kind !== 'region') return null;
+    return this._forkRevealContext()?.regions.find((item) => item.id === node.id) ?? null;
+  }
+
+  /**
+   * matt.2: markers inside the focused region are not held at the 8x size
+   * (they grow with the camera like upstream markers), so the region zoom that
+   * makes them 44 px touch targets actually renders them at that size.
+   */
+  private _forkUncapStyle(d: DevItem, pos: { x: number; y: number }, view: { w: number }): string[] {
+    const space = this._spaceModel();
+    if (!space || this._forkInFocus(d, pos) !== 'in') return [];
+    const cfgSize = this._config?.icon_size ?? 2.5;
+    const iconPct = cfgSize > 8 ? 2.5 : cfgSize;
+    const k = this._kioskScale.icon || 1;
+    // Region focus: grow with the camera (no 8x hold). Room focus: as rendered.
+    const basis = this._forkFocusRegion() ? view.w : this._iconViewWidth(view);
+    // matt.2 (round 4): a focused marker is never smaller than a 44 px target.
+    const scale = Number(d.marker?.size) > 0 ? Number(d.marker!.size) : 1;
+    const minPx = (44 / scale).toFixed(2);
+    return [
+      `--device-base-size:max(${iconCqw(effectiveDeviceBaseSize(iconPct), space, basis, k).toFixed(3)}cqw, ${minPx}px)`,
+      `--icon-size:max(${iconCqw(iconPct, space, basis, k).toFixed(3)}cqw, ${minPx}px)`,
+    ];
   }
 
   /** Fork §7: decor items inside a region appear one level before its markers. */
@@ -6867,11 +7027,19 @@ export class HouseplanCard extends LitElement {
   /** Fork §2/§5: stage pixels covered by on-map chrome; fits keep content clear of them. */
   private _chromeInsets(): StageInsets {
     if (this._mode !== 'view') return NO_INSETS;
-    const right = this._levelIndicatorOn ? 72 : 0;
+    // matt.2: compact chrome below 560 px stage width (fork.styles container query).
+    const narrow = (this._stageEl?.clientWidth ?? 1000) <= 560;
+    // matt.2 round 4: on a phone the level stack docks in the bottom-right
+    // corner (out of the room), so it costs bottom band, not width.
+    const levels = this._levelIndicatorOn ? (narrow ? 0 : 72) : 0;
+    // narrow: a horizontal pill in the dock's band (bottom-right)
+    const levelBand = this._levelIndicatorOn && narrow ? 66 : 0;
+    const right = levels;
     // §5: the scene dock owns a band along its edge.
-    const dock = this._fork.sceneDock.length ? 80 : 0;
+    const dock = this._fork.sceneDock.length ? (narrow ? 66 : 80) : 0;
     const top = dock && this._fork.sceneDockCorner.startsWith('top') ? dock : 0;
-    const bottom = dock && this._fork.sceneDockCorner.startsWith('bottom') ? dock : 0;
+    const sheet = this._forkSheetHeight();
+    const bottom = Math.max(dock && this._fork.sceneDockCorner.startsWith('bottom') ? dock : 0, levelBand) + sheet;
     return right || top || bottom ? { ...NO_INSETS, right, top, bottom } : NO_INSETS;
   }
 
@@ -6880,6 +7048,7 @@ export class HouseplanCard extends LitElement {
     bounds: { x: number; y: number; w: number; h: number },
     baseFit: { x: number; y: number; w: number; h: number },
     safeFraction = 0.8,
+    zoom?: number,
   ): CameraState | null {
     const stage = this._stageEl;
     if (!stage || stage.clientWidth <= 0 || stage.clientHeight <= 0) return null;
@@ -6888,7 +7057,7 @@ export class HouseplanCard extends LitElement {
       stageWidth: stage.clientWidth, stageHeight: stage.clientHeight,
       insets: this._chromeInsets(),
       minZoom: HouseplanCard.ZOOM_MIN, maxZoom: HouseplanCard.ZOOM_MAX,
-      safeFraction,
+      safeFraction, zoom,
     });
   }
 
@@ -6997,18 +7166,87 @@ export class HouseplanCard extends LitElement {
       .catch((e: any) => this._showToast(this._t('toast.error', { err: this._errText(e) })));
   }
 
+  // ---- matt.2 §14: room sheet ---------------------------------------------
+
+  /** Devices of the current focus that the map shows (inside, revealed). */
+  private _forkFocusDevices(): DevItem[] {
+    if (this._mode !== 'view' || !this._focusNode) return [];
+    const ctx = this._forkRevealContext();
+    return this._renderDevices.filter((d) => {
+      if (d.space !== this._space || d.hidden) return false;
+      const pos = this._pos(d);
+      if (this._forkInFocus(d, pos) !== 'in') return false;
+      if (!ctx) return true;
+      const roomId = d.marker?.room_id ?? null;
+      return revealShown([pos.x / NORM_W, pos.y / NORM_W], parseReveal((d.marker as any)?.reveal), roomId, 'marker', ctx);
+    });
+  }
+
+  /** Height of the room sheet (0 = not shown). `room_sheet: auto|always|off`. */
+  private _forkSheetHeight(): number {
+    const mode = (this._config as any)?.room_sheet ?? 'auto';
+    const stage = this._stageEl;
+    if (mode === 'off' || !stage || this._mode !== 'view' || !this._focusNode) return 0;
+    const narrow = stage.clientWidth <= 560;
+    const count = this._forkFocusDevices().length;
+    if (!count || (mode !== 'always' && (!narrow || count < 6))) return 0;
+    return Math.round(Math.min(stage.clientHeight * 0.36, 22 + count * 52));
+  }
+
+  private _forkSheetRows() {
+    const hass = this._renderPlanHass || this.hass;
+    return this._forkFocusDevices()
+      .map((d) => {
+        const presentation = this._devicePresentation(d);
+        const st = d.primary ? hass?.states?.[d.primary] : null;
+        let state = '';
+        if (presentation.valueBadge?.text && presentation.valueBadge.text !== '—') state = presentation.valueBadge.text;
+        else if (presentation.valueText) state = presentation.valueText;
+        else if (st) {
+          try { state = String(hass.formatEntityState?.(st) || st.state); } catch { state = String(st.state); }
+        }
+        const ghost = presentation.classes.includes('presentation-ghost');
+        return {
+          id: d.id, name: d.name || d.primary || '', icon: presentation.icon || d.icon || 'mdi:help-circle-outline',
+          state: ghost ? '' : state, on: presentation.classes.includes('on'), ghost,
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /** A sheet row runs the marker's own tap action and flashes it on the map. */
+  private _forkSheetTap(id: string): void {
+    const d = this._displayDevices.find((item) => item.id === id && item.space === this._space);
+    if (!d) return;
+    this._forkSheetHl = id;
+    window.clearTimeout(this._forkSheetHlTimer);
+    this._forkSheetHlTimer = window.setTimeout(() => {
+      if (this._forkSheetHl === id) this._forkSheetHl = null;
+    }, 1600);
+    this._clickDevice(new Event('click'), d);
+  }
+
   /** Every fork on-map control, painted above the plan inside the stage. */
   private _renderForkChrome(): TemplateResult | typeof nothing {
     if (this._booting || this._mode !== 'view') return nothing;
     const depth = this._focusDepth();
     const editing = this._canEdit && (this._config as any)?.focus_edit === true;
+    const narrow = (this._stageEl?.clientWidth ?? 1000) <= 560;
+    const dockBand = this._fork.sceneDock.length && this._fork.sceneDockCorner.startsWith('bottom') ? (narrow ? 66 : 80) : 0;
+    const sheetH = this._forkSheetHeight();
+    const sheetBottom = Math.max(dockBand, this._levelIndicatorOn && narrow ? 66 : 0) || 12;
     return html`${this._levelIndicatorOn
       ? renderLevelIndicator(
           levelGlyphs(this._model, this._space, this._fork.levelNavOrder),
           (id) => this._flyToLevel(id),
           this._t('fork.levels'),
+          '',
         )
       : nothing}
+      ${sheetH ? renderRoomSheet(this._forkSheetRows(), sheetH, sheetBottom, this._t('fork.devices'),
+        (id) => this._forkSheetTap(id),
+        (id) => { if (this._pointerModality.hoverEnabled) this._forkSheetHl = id; },
+        this._forkSheetHl) : nothing}
       ${renderStepOut(depth > 0, depth, this._t('fork.step_out'), () => this._stepOut())}
       ${renderSceneDock(this._fork.sceneDock, this._fork.sceneDockCorner,
         (entity) => this.hass?.states?.[entity]?.state === 'on',
@@ -11583,7 +11821,7 @@ export class HouseplanCard extends LitElement {
             summary: this._summary?.menuItems() ?? [], t: (k) => this._t(k),
             actions: { setMode: (m) => this._setMode(m), configureSpace: () => this._openSpaceDialog('edit', this._space), addSpace: () => this._openSpaceDialog('create'),
               settings: this._openSettingsDialog, pdf: this._openPdfDialog, support: this._openSupportDialog, toggleHidden: () => this._setShowHidden(!this._showHidden) },
-          }), this._t('title.header_menu'))}
+          }), this._t('title.header_menu'), this._forkCompactView ? 'mdi:dots-vertical' : undefined)}
           </div>
         </div>
         ${this._canEdit && !this._kiosk
@@ -11609,7 +11847,7 @@ export class HouseplanCard extends LitElement {
           data-hp-iso-stage=${iso ? '4' : nothing} data-hp-iso-structural-builds=${iso ? this._isoStructuralBuildCount : nothing}
           data-hp-iso-readiness=${this._isoFirstFrame.readiness(this._desiredProjection, projection, !!this._isoSceneRuntime) ?? nothing}
           ?inert=${this._modeTransitionBusy}
-          style="height:${modeVisual ? `${modeVisual.stageHeight}px` : this._containerOwnedHeight ? 'auto' : this._kiosk ? '100dvh' : this._bootSoft && this._warmVp && this._warmSlot?.stageH ? `${this._warmSlot.stageH}px` : `calc(100dvh - ${this._hdrH}px)`}${transitionStageBg ? `;background:${transitionStageBg}` : ''};--hp-cell-visual-scale:${gridVisualScale(this._cellCm)};--wall-fill:${this._fillColors.wall_fill.c};--wall-fill-op:${this._fillColors.wall_fill.a};--hp-mode-architecture-opacity:${modeVisual ? modeVisual.architectureOpacity : this._mode === 'decor' ? 0.35 : 1};--hp-mode-view-weight:${modeVisual?.viewWeight ?? (this._mode === 'view' ? 1 : 0)};--hp-mode-editor-weight:${modeVisual?.editorWeight ?? (this._mode === 'view' ? 0 : 1)}${modeVisual ? `;--hp-mode-paper:${modeVisual.paperColor}` : ''}${dayCycle ? `;${dayCycleStageVars(dayCycle)}` : ''}${iso ? `;${isoWallMaterialVars(this._fillColors.wall_fill.c)}` : ''}"
+          style="height:${modeVisual ? `${modeVisual.stageHeight}px` : this._containerOwnedHeight ? 'auto' : this._kiosk ? (this._forkKioskAbove ? `calc(100dvh - ${this._forkKioskAbove}px)` : '100dvh') : this._bootSoft && this._warmVp && this._warmSlot?.stageH ? `${this._warmSlot.stageH}px` : `calc(100dvh - ${this._hdrH}px)`}${transitionStageBg ? `;background:${transitionStageBg}` : ''};--hp-cell-visual-scale:${gridVisualScale(this._cellCm)};--wall-fill:${this._fillColors.wall_fill.c};--wall-fill-op:${this._fillColors.wall_fill.a};--hp-mode-architecture-opacity:${modeVisual ? modeVisual.architectureOpacity : this._mode === 'decor' ? 0.35 : 1};--hp-mode-view-weight:${modeVisual?.viewWeight ?? (this._mode === 'view' ? 1 : 0)};--hp-mode-editor-weight:${modeVisual?.editorWeight ?? (this._mode === 'view' ? 0 : 1)}${modeVisual ? `;--hp-mode-paper:${modeVisual.paperColor}` : ''}${dayCycle ? `;${dayCycleStageVars(dayCycle)}` : ''}${iso ? `;${isoWallMaterialVars(this._fillColors.wall_fill.c)}` : ''}"
           @click=${(e: MouseEvent) => this._markupClick(e)}
           @wheel=${(e: WheelEvent) => this._onWheel(e)}
           @pointerdown=${(e: PointerEvent) => { this._notePointer(e); this._stagePointerDown(e); }}
@@ -11939,7 +12177,12 @@ export class HouseplanCard extends LitElement {
           ${this._renderEditorRuntimeLoading()}
           ${this._renderRecoveryOverlay()}
           ${this._summary?.renderMeasure()}
-          ${this._kiosk ? this._summary?.renderControls(true) : nothing}
+          ${this._kiosk ? this._forkCompactView
+            // matt.2 (FORK.md §10): kiosk keeps the map clean — the summary
+            // controls live in one on-map menu instead of two floating buttons.
+            ? html`<div class="fork-kiosk-menu" data-scene-surface>${this._headerMenu.render(
+                this._summary?.menuItems() ?? [], this._t('title.header_menu'), 'mdi:dots-vertical')}</div>`
+            : this._summary?.renderControls(true) : nothing}
           ${this._summary?.renderPanel()}
           ${this._booting || this._bootFading || isoFirstFramePending
             ? html`<div class="bootveil ${this._booting || isoFirstFramePending ? '' : 'off'}" aria-hidden="true">
@@ -12558,7 +12801,7 @@ export class HouseplanCard extends LitElement {
     const left = ((point[0] - view.x) / view.w) * 100;
     const top = ((point[1] - view.y) / view.h) * 100;
     const presentation = this._devicePresentation(d, showLqi);
-    const st = [`left:${left}%`, `top:${top}%`, ...deviceFaceStyle(presentation)];
+    const st = [`left:${left}%`, `top:${top}%`, ...deviceFaceStyle(presentation), ...this._forkUncapStyle(d, pos, view)];
     const floorLight = this._isoLightFloors?.has(isoPlacement?.owner?.id ?? (this._isoLightFloors.size ? this._spaceModel()?.rooms.find((r) => this._pointInRoom([pos.x, pos.y], r))?.id : '') ?? '') ? 'iso-floor-light' : '';
     if (ghost) return renderIsoTileShadow('dev', d.id, `${deviceThemeClass(this._renderPlanHass)} ${presentation.classes.join(' ')} ${floorLight}`, st.join(';'), renderDeviceShadowFace(presentation));
     const disabledReason = presentation.disabledReason;
@@ -12630,6 +12873,9 @@ export class HouseplanCard extends LitElement {
         disabledTitle: presentation.haDisabled ? ghostLabel : '',
       })}
       ${this._vacRouteBadge(d)}
+      ${this._mode === 'view' && !presentation.classes.includes('presentation-ghost') && this._forkInFocus(d, pos) === 'in'
+        && (this._config as any)?.focus_labels !== false
+        ? html`<span class="fork-label" aria-hidden="true">${this._forkShortName(d)}</span>` : nothing}
     </div>`;
   }
 

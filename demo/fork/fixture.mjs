@@ -74,6 +74,9 @@ export const FORK_CONFIG = {
       id: `m-port-${n}`, binding: `entity:sensor.udm_port_${n}_speed`, name: `Port ${n}`,
       icon: 'mdi:ethernet', space: 'main', room_id: 'living', size: 0.16,
       tap_action: 'callout',
+      // matt.2 §11: UniFi reports 10 for "no link" — that is a DOWN port.
+      state_source: { entity_id: `sensor.udm_port_${n}_speed`, active_states: ['100', '1000', '2500', '10000'] },
+      inactive_presentation: 'ghost', hide_badge_when_inactive: true,
       value_badge: { enabled: true, position: 'bottom',
         source: { kind: 'entity_state', entity_id: `sensor.udm_port_${n}_speed` } },
     })),
@@ -90,8 +93,23 @@ export const FORK_CONFIG = {
       space: 'main', room_id: 'hall',
       value_badge: { enabled: true, position: 'bottom',
         source: { kind: 'entity_state', entity_id: 'sensor.office_stairs_timer' } } },
-    { id: 'm-lamp', binding: 'entity:light.living_lamp', name: 'Lamp', icon: 'mdi:floor-lamp',
-      space: 'main', room_id: 'living', tap_action: 'callout' },
+    { id: 'm-lamp', binding: 'entity:light.living_lamp', name: 'Lanterns', icon: 'mdi:floor-lamp',
+      space: 'main', room_id: 'living', tap_action: 'callout',
+      // matt.2 §12: one marker per physical device; extras live in its callout.
+      actions: [
+        { entity: 'script.lanterns_candle', icon: 'mdi:candle', name: 'Candle' },
+        { entity: 'script.lanterns_steady', icon: 'mdi:lightbulb-on-outline', name: 'Steady' },
+        { entity: 'script.lanterns_dimmer', icon: 'mdi:brightness-4', name: 'Dimmer' },
+        { entity: 'script.lanterns_brighter', icon: 'mdi:brightness-7', name: 'Brighter' },
+        { entity: 'script.lanterns_lowest', icon: 'mdi:brightness-1', name: 'Lowest' },
+        { entity: 'script.lanterns_brightest', icon: 'mdi:white-balance-sunny', name: 'Brightest' },
+      ],
+      extra_entities: ['select.lamp_scene', 'switch.lamp_fx', 'number.lamp_speed'] },
+    // matt.2 §13: an oven display that reads 0 while off shows no badge.
+    { id: 'm-oven', binding: 'entity:switch.oven', name: 'Oven', icon: 'mdi:stove',
+      space: 'main', room_id: 'kitchen', badge_hide_when: ['0', 'unknown', 'unavailable'],
+      value_badge: { enabled: true, position: 'bottom',
+        source: { kind: 'entity_state', entity_id: 'sensor.oven_display_temp' } } },
     // Upper office printers.
     { id: 'm-x1c', binding: 'virtual', name: 'X1C', icon: 'mdi:printer-3d', space: 'upper',
       room_id: 'office', presentation: 'ghost' },
@@ -123,6 +141,7 @@ export const FORK_LAYOUT = {
   // Synthetic demo devices kept off the stairs.
   d_lock: { s: 'main', x: 0.53, y: 0.53 },
   'm-timer': { s: 'main', x: 0.69, y: 0.5 },
+  'm-oven': { s: 'main', x: 0.6, y: 0.3 },
   d_light1: { s: 'main', x: 0.14, y: 0.2 },
   d_lamp: { s: 'main', x: 0.24, y: 0.3 },
   d_tv: { s: 'main', x: 0.08, y: 0.5 },
@@ -136,7 +155,7 @@ export const FORK_ENTITIES = [
   ['sensor.udm_wan_speed', 'living_room', '940', { friendly_name: 'WAN', unit_of_measurement: 'Mbit/s', device_class: 'data_rate' }],
   ['sensor.office_stairs_timer', 'hallway', '95', { friendly_name: 'Stairs timer', unit_of_measurement: 'min', device_class: 'duration' }],
   ...[1, 2, 3, 4, 5, 6].map((n) => [
-    `sensor.udm_port_${n}_speed`, 'living_room', n === 3 ? '100' : n === 6 ? '0' : '1000',
+    `sensor.udm_port_${n}_speed`, 'living_room', n === 3 ? '100' : n === 6 ? '10' : '1000',
     { friendly_name: `Port ${n}`, unit_of_measurement: 'Mbit/s', device_class: 'data_rate' },
   ]),
   ['switch.rack_poe', 'living_room', 'on', { friendly_name: 'Rack PoE' }],
@@ -145,4 +164,13 @@ export const FORK_ENTITIES = [
   ['script.night_study', null, 'off', { friendly_name: 'Night Study', icon: 'mdi:book-open-variant' }],
   ['script.late_night_chill', null, 'off', { friendly_name: 'Late Night Chill' }],
   ['scene.all_off', null, 'scening', { friendly_name: 'All off' }],
+  ['script.early_morning', null, 'off', { friendly_name: 'Early morning' }],
+  ...['candle', 'steady', 'dimmer', 'brighter', 'lowest', 'brightest'].map((k) => [
+    `script.lanterns_${k}`, null, 'off', { friendly_name: `Lanterns ${k}` }]),
+  ['select.lamp_scene', 'living_room', 'Aurora', { friendly_name: 'Scene', options: ['Aurora', 'Fire'] }],
+  ['switch.lamp_fx', 'living_room', 'on', { friendly_name: 'FX' }],
+  ['number.lamp_speed', 'living_room', '40', { friendly_name: 'Speed', unit_of_measurement: '%' }],
+  ['switch.oven', 'kitchen', 'off', { friendly_name: 'Oven' }],
+  ['sensor.oven_display_temp', 'kitchen', '0.0', { friendly_name: 'Oven display', unit_of_measurement: '°F', device_class: 'temperature' }],
+  ['script.house_lights_off', null, 'off', { friendly_name: 'House lights off' }],
 ];
