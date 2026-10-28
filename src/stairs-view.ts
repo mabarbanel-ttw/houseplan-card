@@ -16,6 +16,8 @@ export interface StairViewHostPort {
   _gridPitch: number;
   _decorStyle: { color: string; opacity: number };
   _tabClick(spaceId: string): void;
+  /** Fork (FORK.md §1): switch floors and fly the camera to the landing. */
+  _followStair?(stair: Stair): void;
   _t(key: 'markup.stairs' | 'stairs.tooltip_navigate', vars?: Record<string, string | number>): string;
   /** The card's pointer tooltip: shown only for a hover-capable pointer. */
   _showTip(event: PointerEvent, title: string, meta: string): void;
@@ -87,7 +89,8 @@ export class StairViewRuntime {
         if (event.type === 'keydown') this.suppressClick = false;
         if (!active || this.owner._suppressClick || this.suppressClick
             || !stair.target_space_id) return;
-        this.owner._tabClick(stair.target_space_id);
+        if (this.owner._followStair) this.owner._followStair(stair);
+        else this.owner._tabClick(stair.target_space_id);
       };
       return svg`<g class="hp-stair hp-stair-view ${active ? 'navigable' : ''} ${interactive ? 'input-enabled' : ''}"
         data-hp="stair" data-id=${stair.id} data-kind=${stair.kind}

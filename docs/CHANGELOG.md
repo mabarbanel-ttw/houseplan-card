@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fork `matt/single-pane` (see FORK.md)
+
+- Stairs fly-landing: following a stair switches levels and then flies the
+  camera to the stair on the new level that leads back (nearest one when
+  several; Fit all when none). (FORK.md §1)
+
 ## v1.82.0 — 2026-10-21
 
 - Promote the tested v1.82.0-beta.6 product to stable without new visual or

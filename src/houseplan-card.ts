@@ -303,6 +303,12 @@ import {
 } from './ha-binding-status';
 import type { DecorShape, DecorStyle } from './editors/decor/types';
 import { StairViewRuntime, type StairViewHostPort } from './stairs-view';
+import { stairList, stairOutline, type Stair } from './stairs';
+import {
+  focusChildren, focusParent, focusRegionBounds, focusRegionFromView, focusRegionList,
+  inflateToContext, newFocusRegionId, regionRoomId, resolveFocusTap, sameFocusNode, stairLanding,
+  type FocusNode, type FocusRegion,
+} from './fork-focus';
 import { cleanFloorForRoom, type CleanFloorResult } from './clean-floor';
 import {
   floorGeometryKeyReader, floorPoolEntry, openingWallIndexKey, physicalBodiesKey, sunGeometryKey, wallUnionKey,
@@ -1510,6 +1516,7 @@ export class HouseplanCard extends LitElement {
       this._viewHold.cancel();
       this._cancelDeviceDrag();
       this._clearRoomFocus(true);
+      this._focusNode = null; this._landingToken++;
       this._resetDeviceHitState();
       this._cancelDangerConfirm();
       this._closeInfoCard(); this._openingInfo = null; this._openingInfoSpace = null;
@@ -1993,6 +2000,12 @@ export class HouseplanCard extends LitElement {
   private _viewModeSnap: { space: string; zoom: number; cx?: number; cy?: number; w?: number } | null = null;
   /** Session-only View intent. It is deliberately absent from warm/LS/config state. */
   private _roomFocus: { spaceId: string; roomId: string } | null = null;
+  /** Fork §3: logical fly-in position (level → room → region …). Session-only;
+   *  survives manual pan/zoom (unlike the resize-reapply intent above) and is
+   *  cleared by Fit all, a floor switch or stepping out to the level. */
+  private _focusNode: FocusNode = null;
+  /** Fork §1: cancels a pending landing when another navigation follows. */
+  private _landingToken = 0;
   /** Pointer owner captured from the actually painted event path. */
   private _roomPointer: RoomFitGestureCandidate | null = null;
   private readonly _planTaps = new PlanTapGestureController({
@@ -6442,6 +6455,85 @@ export class HouseplanCard extends LitElement {
     this._frame = null;
     this.requestUpdate();
     this._resetZoom(reason);
+  }
+
+  // ---- fork (FORK.md §1–§3): fly-in targets and level landing -------------
+
+  /**
+   * Animate the View camera so `bounds` (render units, already projected for
+   * 2.5D) fill the middle `safeFraction` of the stage. Shares the room-fit
+   * target/clamp maths and the one camera transition controller; like room
+   * fit it never writes the per-space zoom preference.
+   */
+  private _flyToBounds(bounds: { x: number; y: number; w: number; h: number }, safeFraction = 0.8): boolean {
+    if (this._mode !== 'view') return false;
+    const stage = this._stageEl;
+    if (!stage || stage.clientWidth <= 0 || stage.clientHeight <= 0) return false;
+    const base = this._baseVb();
+    const baseFit = fitView(base, stage.clientWidth / stage.clientHeight);
+    const target = roomFitCameraTarget({
+      bounds, baseFit,
+      stageWidth: stage.clientWidth, stageHeight: stage.clientHeight,
+      minZoom: HouseplanCard.ZOOM_MIN, maxZoom: HouseplanCard.ZOOM_MAX,
+      safeFraction,
+    });
+    if (!target) return false;
+    const current = this._cameraState();
+    const clamp = roomFitClampFrame(baseFit, current.viewBox, target.viewBox, bounds);
+    target.viewBox = this._clampView(target.viewBox, clamp);
+    this._prepareCameraCommand();
+    this._startCameraTransition(target, clamp, 'room', CAMERA_FIT_MS);
+    return true;
+  }
+
+  /** Normalized-plan rectangle → camera bounds in the current projection. */
+  private _planRectBounds(rect: { x: number; y: number; w: number; h: number }) {
+    const projection = this._effectiveProjection();
+    return roomFitGeometryBounds({
+      floor: [[rect.x, rect.y], [rect.x + rect.w, rect.y],
+        [rect.x + rect.w, rect.y + rect.h], [rect.x, rect.y + rect.h]],
+      projection,
+    });
+  }
+
+  /** Fork §1: a valid stair switches floors, then flies to the stair that leads back. */
+  public _followStair(stair: Stair): void {
+    const target = stair.target_space_id;
+    if (!target) return;
+    const from = this._space;
+    this._tabClick(target);
+    if (this._space !== target || from === target) return;
+    this._landOnSpace(target, from, { x: stair.x, y: stair.y });
+  }
+
+  /**
+   * After a floor switch: fly to the stair on `spaceId` that links back to
+   * `fromSpace` (nearest to `sourcePos` when several), else fit the whole
+   * level. Runs after the new floor's first frame so the frame/base view
+   * belong to the new space; a later navigation cancels it.
+   */
+  private _landOnSpace(spaceId: string, fromSpace: string | null, sourcePos: { x: number; y: number } | null): void {
+    const token = ++this._landingToken;
+    void this.updateComplete.then(() => requestAnimationFrame(() => {
+      if (token !== this._landingToken || this._space !== spaceId || this._mode !== 'view') return;
+      this._focusNode = null;
+      const stairs = stairList(this._curSpaceCfg?.stairs);
+      const landing = fromSpace ? stairLanding(stairs, fromSpace, sourcePos) : null;
+      if (!landing) {
+        this._fitAll('fit');
+        return;
+      }
+      const raw = this._planRectBounds((() => {
+        const outline = stairOutline(landing, NORM_W);
+        const xs = outline.map((p) => p[0]), ys = outline.map((p) => p[1]);
+        const x = Math.min(...xs), y = Math.min(...ys);
+        return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+      })());
+      if (!raw) { this._fitAll('fit'); return; }
+      const base = this._baseVb();
+      const context = inflateToContext(raw, 0.5 * Math.max(base[2], base[3]));
+      if (!this._flyToBounds(context)) this._fitAll('fit');
+    }));
   }
 
   /** Unobtrusive inline hint: some objects stand an order of magnitude away
