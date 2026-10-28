@@ -4,6 +4,7 @@ import {
 import { deviceLqi, type DeviceSignalContext } from './device-signal';
 import { isRegistryEntryEnabled } from './ha-binding-status';
 import { displayIsNeutral, displayWantsValue, hassValue, valueWithUnit, type DeviceDisplayMode } from './logic';
+import { compactBadgeValue } from './fork-format';
 import type {
   DevItem, MarkerValueBadge, ValueBadgePosition, ValueBadgeSource,
 } from './types';
@@ -185,7 +186,10 @@ export function resolveValueSource(
     }
     else {
       const value = hassValue(hass, source.entity_id);
-      text = value ? valueWithUnit(value, String(st.attributes?.unit_of_measurement || '')) : null;
+      const unit = String(st.attributes?.unit_of_measurement || '');
+      // Fork §8: data rates and durations as compact badges ("1G", "95m").
+      text = compactBadgeValue(st.state, unit, st.attributes?.device_class)
+        ?? (value ? valueWithUnit(value, unit) : null);
       if (!text) {
         availability = 'unavailable';
         failure = 'missing';

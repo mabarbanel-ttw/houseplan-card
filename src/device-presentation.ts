@@ -5,6 +5,7 @@
  * this object. Renderers are deliberately dumb: they never choose another
  * entity, reclassify a state or format a value on their own.
  */
+import { compactBadgeValue } from './fork-format';
 import {
   climateTempFor, humFor, isHumEntity, isTempEntity,
   persistedExternalControls, resolvedDeviceStateEntities, resolvedLightSources, tempFor,
@@ -561,7 +562,9 @@ function validStateValue(hass: any, eid: string): { text: string; fallback: Valu
   const formatted = hassValue(hass, eid);
   if (!formatted) return { text: '', fallback: 'value_no_state' };
   const unit = String(state.attributes?.unit_of_measurement || '');
-  return { text: valueWithUnit(formatted, unit), fallback: null };
+  // Fork §8: compact data rates/durations on the value face too.
+  const compact = compactBadgeValue(raw, unit, state.attributes?.device_class);
+  return { text: compact ?? valueWithUnit(formatted, unit), fallback: null };
 }
 
 function resolveValue(

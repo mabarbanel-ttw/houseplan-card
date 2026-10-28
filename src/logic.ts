@@ -1145,6 +1145,10 @@ export function valueWithUnit(v: HassValue, own: string, explicit?: string | nul
   const wanted = String(explicit ?? '').trim() || ownU;
   if (!wanted) return v.text;
   const bare = v.formatted && ownU ? withoutUnit(v.text, ownU) : v.text;
+  // Fork (FORK.md §8): HA formatted the value with a unit of its own (a
+  // duration "95m" for a `min` sensor): never append a second unit.
+  if (v.formatted && !String(explicit ?? '').trim() && bare === v.text
+      && /[^\d\s.,'’\u00a0\u202f+\-−:]/.test(v.text)) return v.text;
   return `${bare} ${wanted}`;
 }
 
