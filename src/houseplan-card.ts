@@ -239,7 +239,7 @@ import {
   ACTIVITY_WINDOW_MS, advanceFiniteActivity, createFiniteActivityRuntime,
   resetFiniteActivityRuntime, stampFiniteActivity, type FiniteActivityRuntime,
 } from './activity-runtime';
-import { valueBadgeTitle } from './device-value-badge';
+import { resolveValueSource, valueBadgeTitle } from './device-value-badge';
 import {
   presentationSnapshotKey, selectRenderDeviceSnapshot, type RenderDeviceSnapshot,
 } from './render-device-snapshot';
@@ -312,8 +312,9 @@ import {
   type FocusNode, type FocusRegion, type StageInsets,
 } from './fork-focus';
 import {
-  forkCardOptions, levelGlyphs, renderLevelIndicator, renderSceneDock, renderStepOut,
-  sceneDockService, type ForkCardOptions, type SceneDockItem,
+  calloutToggleEntity, forkCardOptions, levelGlyphs, renderCallout, renderLevelIndicator,
+  renderSceneDock, renderStepOut, sceneDockService,
+  type CalloutModel, type ForkCardOptions, type SceneDockItem,
 } from './fork-chrome';
 import { cleanFloorForRoom, type CleanFloorResult } from './clean-floor';
 import {
@@ -1522,7 +1523,7 @@ export class HouseplanCard extends LitElement {
       this._viewHold.cancel();
       this._cancelDeviceDrag();
       this._clearRoomFocus(true);
-      this._focusNode = null; this._landingToken++;
+      this._focusNode = null; this._landingToken++; this._closeCallout();
       this._resetDeviceHitState();
       this._cancelDangerConfirm();
       this._closeInfoCard(); this._openingInfo = null; this._openingInfoSpace = null;
@@ -2207,6 +2208,11 @@ export class HouseplanCard extends LitElement {
   private _rulesCompiled: CompiledIconRule[] | undefined;
 
   private _infoCard: DevItem | null = null;
+  /** Fork §4: the marker whose in-place callout is open (View only). */
+  private _callout: { spaceId: string; id: string } | null = null;
+  private _calloutOutside: ((event: Event) => void) | null = null;
+  /** Fork §5: dock button that just ran (brief press feedback). */
+  private _forkDockPressed: string | null = null;
   /** Native HA more-info last opened by this card, for disabled mid-dialog cleanup. */
   private _nativeMoreInfoEntity: string | null = null;
   private _deviceInbox: DeviceInboxDialogState | null = null;
@@ -2700,6 +2706,10 @@ export class HouseplanCard extends LitElement {
     _roomLabelScale: { state: true },
     _spaceDialog: { state: true },
     _infoCard: { state: true },
+    // Fork (FORK.md §3/§4): fly-in position and the open touch callout.
+    _focusNode: { state: true },
+    _callout: { state: true },
+    _forkDockPressed: { state: true },
     _deviceInbox: { state: true },
     _rulesDialog: { state: true },
     _settingsDialog: { state: true },
@@ -2819,6 +2829,7 @@ export class HouseplanCard extends LitElement {
   }
 
   public disconnectedCallback(): void {
+    this._closeCallout(); // fork §4: no window listeners outlive the card
     this._kioskCarousel.dispose();
     for (const type of ['pointerdown', 'wheel', 'keydown']) this.removeEventListener(
       type, this._kioskInteraction, true,
@@ -5927,6 +5938,14 @@ export class HouseplanCard extends LitElement {
       this._infoCard = actionDevice;
       return;
     }
+    if (action === 'callout') {
+      // Fork §4: an in-place popover anchored to the marker; a second tap on
+      // the same marker closes it.
+      this._interruptViewGesture();
+      if (this._callout?.id === actionDevice.id && this._callout.spaceId === this._space) this._closeCallout();
+      else this._openCallout(actionDevice);
+      return;
+    }
     if (!this._deviceBindingActive(actionDevice)) return;
     if (action === 'run') {
       const target = actionDevice.marker?.tap_target || '';
@@ -5964,6 +5983,135 @@ export class HouseplanCard extends LitElement {
       return;
     }
     this._infoCard = actionDevice;
+  }
+
+  // ---- fork §4: touch callout ----------------------------------------------
+
+  private _openCallout(d: DevItem): void {
+    this._callout = { spaceId: this._space, id: d.id };
+    if (!this._calloutOutside) {
+      // Tap/click anywhere outside the callout closes it; the press is not
+      // swallowed, so it still pans, taps a marker or flies in as usual.
+      this._calloutOutside = (event: Event) => {
+        const path = event.composedPath();
+        if (path.some((node) => (node as Element)?.getAttribute?.('data-hp') === 'fork-callout')) return;
+        // A press on the marker that owns the callout lets its click toggle it.
+        const device = path.find((node) => (node as HTMLElement)?.dataset?.hp === 'device') as HTMLElement | undefined;
+        if (device && device.dataset.id === this._callout?.id) return;
+        this._closeCallout();
+        // Dismissing is the whole meaning of a plan tap outside the callout: it
+        // must not also fit a room or fly in. Another marker still takes it.
+        if (!device && path.includes(this._stageEl as EventTarget)) {
+          this._clearPlanTapSequence();
+          this._suppressClick = true;
+          // Released on the next tick after this press ends, like a pan.
+          const release = () => {
+            window.removeEventListener('pointerup', release, true);
+            window.removeEventListener('pointercancel', release, true);
+            setTimeout(() => { this._suppressClick = false; }, 0);
+          };
+          window.addEventListener('pointerup', release, true);
+          window.addEventListener('pointercancel', release, true);
+        }
+      };
+      window.addEventListener('pointerdown', this._calloutOutside, true);
+      window.addEventListener('keydown', this._calloutKey, true);
+    }
+  }
+
+  private readonly _calloutKey = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape' && this._callout) {
+      event.stopPropagation();
+      this._closeCallout();
+    }
+  };
+
+  private _closeCallout(): void {
+    if (this._calloutOutside) {
+      window.removeEventListener('pointerdown', this._calloutOutside, true);
+      window.removeEventListener('keydown', this._calloutKey, true);
+      this._calloutOutside = null;
+    }
+    if (this._callout) this._callout = null;
+  }
+
+  /** View-model of the open callout, or null when its marker is gone. */
+  private _calloutModel(view: { x: number; y: number; w: number; h: number }): CalloutModel | null {
+    const open = this._callout;
+    if (!open || open.spaceId !== this._space || this._mode !== 'view') return null;
+    const d = this._displayDevices.find((item) => item.id === open.id && !item.hidden && item.space === this._space);
+    if (!d) return null;
+    const hass = this._renderPlanHass || this.hass;
+    const st = d.primary ? hass?.states?.[d.primary] : null;
+    const format = (state: any): string => {
+      if (!state) return '';
+      try {
+        const text = typeof hass?.formatEntityState === 'function' ? hass.formatEntityState(state) : '';
+        if (text) return String(text);
+      } catch { /* fall back to the raw state */ }
+      const unit = state.attributes?.unit_of_measurement;
+      return unit ? `${state.state} ${unit}` : String(state.state ?? '');
+    };
+    let value = '';
+    let valueLabel = '';
+    const source = d.marker?.value_badge?.source || d.marker?.value_source || null;
+    if (source) {
+      try {
+        const resolved = resolveValueSource(hass, d, source as never);
+        value = resolved.fullText || resolved.text || '';
+        valueLabel = resolved.sourceLabel || '';
+      } catch { /* no value row */ }
+    }
+    const state = format(st);
+    if (value && value === state) value = '';
+    const toggleEntity = calloutToggleEntity(d.primary);
+    const toggleState = toggleEntity ? hass?.states?.[toggleEntity] : null;
+    const pos = this._pos(d);
+    const left = ((pos.x - view.x) / view.w) * 100;
+    const top = ((pos.y - view.y) / view.h) * 100;
+    const onLike = (value?: string) => ['on', 'open', 'playing', 'home', 'heat', 'cool'].includes(String(value || ''));
+    return {
+      id: d.id,
+      name: d.name || d.primary || '',
+      icon: this._devicePresentation(d).icon || d.icon || 'mdi:information-outline',
+      state,
+      on: onLike(st?.state),
+      value,
+      valueLabel,
+      toggle: toggleEntity ? {
+        entity: toggleEntity,
+        on: toggleState?.state === 'on',
+        available: !!toggleState && toggleState.state !== 'unavailable' && toggleState.state !== 'unknown',
+      } : null,
+      more: d.primary && this._deviceBindingActive(d) ? d.primary : null,
+      left,
+      top,
+      shift: (() => {
+        const width = this._stageEl?.clientWidth || 0;
+        if (!width) return 0;
+        const half = Math.min(280, width * 0.72) / 2 + 8;
+        const anchor = (left / 100) * width;
+        return Math.max(half, Math.min(width - half, anchor)) - anchor;
+      })(),
+      below: top < 34,
+    };
+  }
+
+  private _renderCalloutLayer(view: { x: number; y: number; w: number; h: number }): TemplateResult | typeof nothing {
+    const model = this._calloutModel(view);
+    if (!model) return nothing;
+    return html`<div class="fork-callout-layer" data-hp-live-layer="camera">${renderCallout(model, {
+      toggle: this._t('fork.callout_toggle'), more: this._t('fork.callout_more'), close: this._t('btn.close'),
+    }, {
+      toggle: (entity) => {
+        const domain = entity.split('.')[0];
+        this._startDevicePressFeedback(model.id);
+        this.hass.callService(domain, 'toggle', { entity_id: entity })
+          .catch((e: any) => this._showToast(this._t('toast.error', { err: this._errText(e) })));
+      },
+      more: (entity) => { this._closeCallout(); this._openMoreInfo(entity); },
+      close: () => this._closeCallout(),
+    })}</div>`;
   }
 
   /** Explain a safe controls no-op through the card's standard local toast. */
@@ -8059,6 +8207,7 @@ export class HouseplanCard extends LitElement {
   }
 
   private _setMode(mode: 'view' | 'plan' | 'devices' | 'decor', animate = true, warm = false): void {
+    if (mode !== 'view') this._closeCallout();
     if (!warm) this._cancelPendingWarmMode();
     if (mode !== this._mode) {
       this._clearRoomFocus(true);
@@ -11696,6 +11845,7 @@ export class HouseplanCard extends LitElement {
             ${''/* #649: one floor-shadow layer (z below every tile), after the markers in DOM order */}${iso ? html`<div class="iso-tile-shadows" aria-hidden="true">${repeat(devs, (d) => d.id, (d) => this._renderDevice(d, view, showLqi, isoOverlays?.devices.get(d.id), true))}${this._renderOpeningLocks(view, isoOverlays?.locks, true)}</div>` : nothing}
             ${renderZigbeeTopologyOverlay({ hass: this.hass, settings: this._settings, devices: this._renderDevices, registry: this._haRegistry, currentSpace: space.id, spaces: this._serverCfg?.spaces, viewKey: view, zoom: this._zoom, view: this._mode === 'view', kiosk: this._kiosk, ready: this._viewRuntimes.zigbee.state === 'ready', onLayout: () => this._liveRt?.hover() })}
           </div>
+          ${this._renderCalloutLayer(view)}
           <div data-hp-live-editor-html></div>
           </div>
           ${dialogPresence(this._wallDialog ? this._renderWallThickDialog() : nothing)}

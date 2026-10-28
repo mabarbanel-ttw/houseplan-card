@@ -34,7 +34,8 @@ import {
 } from '../test-build/rules.js';
 
 test('tap action editor choices keep the canonical order', () => {
-  assert.deepEqual([...TAP_ACTIONS], ['info', 'more-info', 'toggle', 'run', 'none']);
+  // Fork (FORK.md §4): `callout` is appended; upstream order is unchanged.
+  assert.deepEqual([...TAP_ACTIONS], ['info', 'more-info', 'toggle', 'run', 'none', 'callout']);
 });
 
 test('room tooltip preference is default-on and only exact false disables it', () => {

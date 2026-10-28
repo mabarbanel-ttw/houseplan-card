@@ -466,7 +466,7 @@ export function projectedTapAction(
 ): DeviceTapAction {
   if (persisted === 'cover' || persisted === 'toggle') return 'toggle';
   if (persisted === 'more-info' || persisted === 'run'
-    || persisted === 'info' || persisted === 'none') return persisted;
+    || persisted === 'info' || persisted === 'none' || persisted === 'callout') return persisted;
   // Only actual absence activates the light default. An unknown persisted
   // token is invalid data, not an absent choice: fail closed to the local card
   // so the UI projection and `toggleOriginOf()` cannot disagree.

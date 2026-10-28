@@ -15,6 +15,9 @@
   outlines, markers of unentered targets inert, max zoom 32x, `focus_edit`
   authoring buttons. Validated in the integration and kept by every
   transfer. (FORK.md §3)
+- Touch callout: new marker tap action `callout` opens an in-place popover
+  with name, state, value-badge value, a switch for switch/light bindings and
+  HA more-info. (FORK.md §4)
 - Touch View no longer shows a room's "open HA area" link: it is a page
   change and a hit target that covered stairs at phone zoom. (FORK.md §7)
 

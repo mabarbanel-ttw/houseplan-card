@@ -54,3 +54,11 @@ def test_fork_focus_regions_are_bounded_and_unique():
     many = [{"id": f"r{i}", "x": 0, "y": 0, "w": 1, "h": 1} for i in range(v.MAX_FOCUS_REGIONS + 1)]
     with pytest.raises(vol.Invalid):
         v.CONFIG_SCHEMA({"spaces": [_space(focus_regions=many)], "markers": []})
+
+
+def test_fork_marker_callout_action():
+    marker = {"id": "m", "binding": "entity:switch.rack", "tap_action": "callout"}
+    validated = v.CONFIG_SCHEMA({"spaces": [], "markers": [marker]})
+    assert validated["markers"][0]["tap_action"] == "callout"
+    with pytest.raises(vol.Invalid):
+        v.CONFIG_SCHEMA({"spaces": [], "markers": [{**marker, "tap_action": "popover"}]})

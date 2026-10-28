@@ -186,3 +186,46 @@ delayed room/background taps to `planTap` before room fit),
 `custom_components/houseplan/import_export.py`, `scripts/config-schema.json`
 (regenerated), `test/fork-focus.test.mjs`, `test/room-fit.test.mjs`,
 `tests_backend/test_fork_single_pane.py`, `tests_backend/test_ha_import_export.py`.
+
+## 4. Touch callout (per-device detail on tap)
+
+**What.** New marker tap action **Callout** (`tap_action: "callout"`, chosen in
+the device editor's action list like any other). A short tap/click opens a
+small popover anchored to the marker, in place — not a dialog, not a page:
+
+- the marker icon and name;
+- the primary entity's state (HA-formatted);
+- the marker's value-badge source value when it has one (e.g. link speed);
+- a switch control when the primary entity is a `switch.*` or `light.*`
+  (calls `<domain>.toggle` on exactly that entity; locks, covers and every
+  other domain never get a switch here);
+- a **⋯** control that opens HA more-info for the primary entity.
+
+Tapping outside closes it (that tap does nothing else — it does not also fit a
+room or fly in; a tap on another marker still acts on that marker). A second
+tap on the same marker, Escape, a level switch or entering an editor also
+close it. The callout follows the camera (it lives in the camera layer), stays
+on screen near the edges (its beak keeps pointing at the marker) and opens
+below the marker near the top edge.
+
+Desktop keeps the hover tooltips; the callout also works with a mouse click.
+Every existing action (device card, more-info, toggle, run, do nothing) and the
+600 ms hold → device card are unchanged.
+
+**Config keys.** Marker `tap_action` accepts `"callout"` (persisted; added to
+the integration's marker schema enum, the support-package wire schema and the
+frontend `TAP_ACTIONS`):
+
+```json
+{ "id": "port-3", "binding": "entity:sensor.udm_port_3_speed", "tap_action": "callout" }
+```
+
+**Files.** `src/fork-chrome.ts` (`renderCallout`, `calloutToggleEntity`),
+`src/houseplan-card.ts` (`_openCallout`, `_closeCallout`, `_calloutModel`,
+`_renderCalloutLayer`, `callout` branch of `_clickDevice`), `src/logic.ts`
+(`TAP_ACTIONS`), `src/device-toggle.ts` (`projectedTapAction`),
+`src/styles/fork.styles.ts`, `src/i18n/*.json` (`tap.callout`,
+`fork.callout_*`), `custom_components/houseplan/validation.py`,
+`custom_components/houseplan/support_wire_schema.py`,
+`scripts/config-schema.json`, `test/fork-chrome.test.mjs`,
+`test/logic.test.mjs`, `tests_backend/test_fork_single_pane.py`.

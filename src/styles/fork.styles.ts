@@ -189,6 +189,139 @@ export const forkStyles = css`
   }
   .fork-round ha-icon { --mdc-icon-size: 22px; line-height: 1; }
 
+  /* ---- §4 touch callout: an in-place popover anchored to the marker */
+  .fork-callout-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 13;
+    pointer-events: none;
+  }
+  .fork-callout {
+    position: absolute;
+    pointer-events: auto;
+    min-width: 168px;
+    max-width: min(280px, 72vw);
+    padding: 10px 12px 10px;
+    border-radius: 16px;
+    background: var(--fork-glass);
+    border: 1px solid var(--fork-edge);
+    box-shadow: var(--fork-shadow);
+    backdrop-filter: blur(14px) saturate(1.3);
+    -webkit-backdrop-filter: blur(14px) saturate(1.3);
+    color: var(--fork-ink);
+    font-size: 14px;
+    line-height: 1.25;
+    touch-action: manipulation;
+    animation: fork-callout-in 180ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  .fork-callout.above { transform: translate(-50%, calc(-100% - 30px)); }
+  .fork-callout.below { transform: translate(-50%, 30px); }
+  .fork-callout::after {
+    /* the beak pointing at the marker */
+    content: '';
+    position: absolute;
+    left: calc(50% + var(--fork-beak, 0px));
+    width: 0;
+    height: 0;
+    border: 8px solid transparent;
+    transform: translateX(-50%);
+  }
+  .fork-callout.above::after { bottom: -16px; border-top-color: var(--fork-glass); }
+  .fork-callout.below::after { top: -16px; border-bottom-color: var(--fork-glass); }
+  .fork-callout.on { border-color: color-mix(in srgb, var(--fork-accent) 55%, transparent); }
+  .fork-callout-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .fork-callout-icon {
+    --mdc-icon-size: 20px;
+    line-height: 1;
+    flex: none;
+    color: var(--fork-accent);
+  }
+  .fork-callout-name {
+    font-weight: 650;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .fork-callout-vals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .fork-callout-state,
+  .fork-callout-value {
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    background: color-mix(in srgb, var(--fork-ink) 9%, transparent);
+  }
+  .fork-callout.on .fork-callout-state {
+    background: color-mix(in srgb, var(--fork-accent) 24%, transparent);
+    color: color-mix(in srgb, var(--fork-accent) 35%, var(--fork-ink));
+  }
+  .fork-callout-value {
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--fork-ink) 22%, transparent);
+  }
+  .fork-callout-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .fork-callout-spacer { flex: 1; }
+  .fork-callout-toggle {
+    position: relative;
+    width: 52px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--fork-ink) 22%, transparent);
+    cursor: pointer;
+    transition: background 160ms ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .fork-callout-toggle i {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+    transition: transform 160ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+  .fork-callout-toggle.on { background: var(--fork-accent); }
+  .fork-callout-toggle.on i { transform: translateX(20px); }
+  .fork-callout-toggle:disabled { opacity: 0.4; cursor: default; }
+  .fork-callout-more {
+    width: 44px;
+    height: 36px;
+    padding: 0;
+    border-radius: 18px;
+    border: 1px solid var(--fork-edge);
+    background: transparent;
+    color: var(--fork-ink);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+  }
+  .fork-callout-more ha-icon { --mdc-icon-size: 20px; line-height: 1; }
+  @keyframes fork-callout-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
   @keyframes fork-pop {
     from { opacity: 0; transform: scale(0.8); }
     to { opacity: 1; transform: scale(1); }

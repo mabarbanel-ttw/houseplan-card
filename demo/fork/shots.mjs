@@ -358,11 +358,80 @@ async function scenarioAuthoring(page, vp) {
   await settle(page);
 }
 
+async function scenarioCallout(page, vp) {
+  const tag = `${vp.key}.callout`;
+  await page.evaluate(() => {
+    window.__moreInfo = [];
+    if (!window.__moreInfoHooked) {
+      window.__moreInfoHooked = true;
+      window.addEventListener('hass-more-info', (e) => window.__moreInfo.push(e.detail?.entityId), true);
+      window.__card.addEventListener('hass-more-info', (e) => window.__moreInfo.push(e.detail?.entityId), true);
+    }
+  });
+  await page.evaluate(() => window.__card._fitRoom('living'));
+  await settle(page, 200);
+  const callout = () => page.evaluate(() => {
+    const el = window.__card.renderRoot.querySelector('[data-hp="fork-callout"]');
+    if (!el) return null;
+    return {
+      id: el.dataset.id,
+      name: el.querySelector('.fork-callout-name')?.textContent.trim(),
+      state: el.querySelector('[data-hp="fork-callout-state"]')?.textContent.trim() || '',
+      value: el.querySelector('[data-hp="fork-callout-value"]')?.textContent.trim() || '',
+      toggle: el.querySelector('[data-hp="fork-callout-toggle"]')?.getAttribute('aria-checked') ?? null,
+      dialog: !!window.__card._infoCard,
+    };
+  });
+  const lamp = await centerOf(page, '[data-hp="device"][data-id="m-lamp"]');
+  await tap(page, vp, lamp);
+  await settle(page, 150);
+  let c = await callout();
+  check(`${tag}: tap opens the in-place callout (not a dialog)`, c && c.id === 'm-lamp' && !c.dialog, true);
+  check(`${tag}: callout shows the light state and an on toggle`, c && c.state === 'on' && c.toggle === 'true', true);
+  await shot(page, vp, '04-callout-1-light');
+  const calls = await page.evaluate(() => window.__serviceCalls.length);
+  await tap(page, vp, await centerOf(page, '[data-hp="fork-callout-toggle"]'));
+  await settle(page, 200);
+  const last = await page.evaluate((n) => window.__serviceCalls.slice(n), calls);
+  check(`${tag}: toggle calls light.toggle on the binding`, last.map((x) => [x[0], x[1], x[2]?.entity_id]),
+    [['light', 'toggle', 'light.living_lamp']]);
+  c = await callout();
+  check(`${tag}: callout follows the new state`, c?.toggle, 'false');
+  await shot(page, vp, '04-callout-2-toggled');
+  // Outside tap closes it and does nothing else.
+  const before = await state(page);
+  await tap(page, vp, await screenOfPlan(page, 0.12, 0.42));
+  await sleep(450);
+  await settle(page, 100);
+  check(`${tag}: tap outside closes the callout`, await callout(), null);
+  const after = await state(page);
+  check(`${tag}: dismissing tap does not move the camera`, Math.abs(after.zoom - before.zoom) < 1e-6, true);
+  // Sensor marker in the faceplate: value, no toggle, more-info.
+  await page.evaluate(() => window.__card._fitRegion('udm'));
+  await settle(page, 200);
+  await tap(page, vp, await centerOf(page, '[data-hp="device"][data-id="m-port-3"]'));
+  await settle(page, 150);
+  c = await callout();
+  check(`${tag}: port callout shows its link value, no toggle`, c && c.id === 'm-port-3' && c.toggle === null && !!(c.state || c.value), true);
+  await shot(page, vp, '04-callout-3-port');
+  await tap(page, vp, await centerOf(page, '[data-hp="fork-callout-more"]'));
+  await settle(page, 100);
+  check(`${tag}: more opens HA more-info for the binding`, await page.evaluate(() => window.__moreInfo.slice(-1)), ['sensor.udm_port_3_speed']);
+  check(`${tag}: more closes the callout`, await callout(), null);
+  // Upstream actions unchanged: a default marker still opens the device card.
+  await page.evaluate(() => window.__card._fitRoom('living'));
+  await settle(page, 200);
+  await tap(page, vp, await centerOf(page, '[data-hp="device"][data-id="d_tv"]'));
+  await settle(page, 150);
+  check(`${tag}: other actions unchanged (info card)`, await page.evaluate(() => !!window.__card._infoCard), true);
+}
+
 const RUN = [
   ['stairs', scenarioStairs],
   ['levels', scenarioLevels],
   ['nested', scenarioNested],
   ['authoring', scenarioAuthoring],
+  ['callout', scenarioCallout],
 ];
 
 for (const vp of VIEWPORTS) {

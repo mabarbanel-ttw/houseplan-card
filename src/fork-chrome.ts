@@ -154,3 +154,68 @@ export function renderSceneDock(
     })}
   </div>`;
 }
+
+// ---------------------------------------------------------------- §4 callout
+
+export interface CalloutModel {
+  id: string;
+  name: string;
+  icon: string;
+  /** Formatted primary-entity state (empty when the marker has none). */
+  state: string;
+  /** Primary state is "on"-like (drives the accent). */
+  on: boolean;
+  /** Value-badge source value, e.g. link speed (empty when none). */
+  value: string;
+  valueLabel: string;
+  /** Toggle target (switch/light primary), or null. */
+  toggle: { entity: string; on: boolean; available: boolean } | null;
+  /** HA more-info target, or null. */
+  more: string | null;
+  /** Anchor in % of the stage (camera-layer coordinates). */
+  left: number;
+  top: number;
+  /** Horizontal shift (px) keeping the card on screen; the beak shifts back. */
+  shift: number;
+  /** Open below the marker (near the top edge) instead of above. */
+  below: boolean;
+}
+
+export const CALLOUT_TOGGLE_DOMAINS = ['switch', 'light'] as const;
+
+export function calloutToggleEntity(primary: string | null | undefined): string | null {
+  const domain = String(primary || '').split('.')[0];
+  return (CALLOUT_TOGGLE_DOMAINS as readonly string[]).includes(domain) ? String(primary) : null;
+}
+
+export function renderCallout(
+  model: CalloutModel,
+  labels: { toggle: string; more: string; close: string },
+  actions: { toggle: (entity: string) => void; more: (entity: string) => void; close: () => void },
+): TemplateResult {
+  return html`<div class="fork-callout ${model.below ? 'below' : 'above'} ${model.on ? 'on' : ''}"
+    data-hp="fork-callout" data-id=${model.id} data-scene-surface role="dialog" aria-label=${model.name}
+    style="left:calc(${model.left}% + ${model.shift}px);top:${model.top}%;--fork-beak:${-model.shift}px"
+    @pointerdown=${(event: Event) => event.stopPropagation()}
+    @click=${(event: Event) => event.stopPropagation()}>
+    <div class="fork-callout-head">
+      <ha-icon class="fork-callout-icon" icon=${model.icon}></ha-icon>
+      <span class="fork-callout-name">${model.name}</span>
+    </div>
+    ${model.state || model.value ? html`<div class="fork-callout-vals">
+      ${model.state ? html`<span class="fork-callout-state" data-hp="fork-callout-state">${model.state}</span>` : nothing}
+      ${model.value ? html`<span class="fork-callout-value" data-hp="fork-callout-value"
+        title=${model.valueLabel}>${model.value}</span>` : nothing}
+    </div>` : nothing}
+    ${model.toggle || model.more ? html`<div class="fork-callout-actions">
+      ${model.toggle ? html`<button type="button" role="switch" class="fork-callout-toggle ${model.toggle.on ? 'on' : ''}"
+          data-hp="fork-callout-toggle" aria-checked=${model.toggle.on ? 'true' : 'false'}
+          aria-label=${labels.toggle} title=${labels.toggle} ?disabled=${!model.toggle.available}
+          @click=${() => actions.toggle(model.toggle!.entity)}><i></i></button>` : nothing}
+      <span class="fork-callout-spacer"></span>
+      ${model.more ? html`<button type="button" class="fork-callout-more" data-hp="fork-callout-more"
+          aria-label=${labels.more} title=${labels.more}
+          @click=${() => actions.more(model.more!)}><ha-icon icon="mdi:dots-horizontal"></ha-icon></button>` : nothing}
+    </div>` : nothing}
+  </div>`;
+}

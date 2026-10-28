@@ -20,3 +20,15 @@ test('fork §2 glyphs follow tab order top-to-bottom, or its reverse', () => {
   ]);
   assert.deepEqual(levelGlyphs(spaces, 'main', 'reverse').map((g) => g.id), ['low', 'main', 'up']);
 });
+
+test('fork §4 callout toggles only switch/light bindings; projection keeps callout', async () => {
+  const { calloutToggleEntity } = await import('../test-build/fork-chrome.js');
+  const { projectedTapAction } = await import('../test-build/device-toggle.js');
+  assert.equal(calloutToggleEntity('switch.rack_poe'), 'switch.rack_poe');
+  assert.equal(calloutToggleEntity('light.lamp'), 'light.lamp');
+  assert.equal(calloutToggleEntity('lock.front'), null, 'locks are never a callout toggle');
+  assert.equal(calloutToggleEntity('cover.garage'), null);
+  assert.equal(calloutToggleEntity(null), null);
+  assert.equal(projectedTapAction('callout', 'sensor'), 'callout');
+  assert.equal(projectedTapAction(null, 'light'), 'toggle', 'upstream default unchanged');
+});

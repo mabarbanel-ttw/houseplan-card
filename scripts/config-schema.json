@@ -224,6 +224,9 @@
           "const": "cover"
         },
         {
+          "const": "callout"
+        },
+        {
           "type": "null"
         }
       ]
