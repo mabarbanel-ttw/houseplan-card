@@ -263,3 +263,59 @@ export function inflateToContext(
     h,
   };
 }
+
+// ---------------------------------------------------------------- chrome insets
+
+export interface StageInsets { left: number; right: number; top: number; bottom: number }
+export const NO_INSETS: StageInsets = Object.freeze({ left: 0, right: 0, top: 0, bottom: 0 });
+
+export interface InsetCameraInput {
+  bounds: { x: number; y: number; w: number; h: number };
+  /** The whole-stage fit rectangle that defines zoom 1 (render units). */
+  baseFit: { x: number; y: number; w: number; h: number };
+  stageWidth: number;
+  stageHeight: number;
+  insets: StageInsets;
+  minZoom: number;
+  maxZoom: number;
+  safeFraction: number;
+}
+
+/**
+ * Fit `bounds` into the part of the stage not covered by on-map chrome
+ * (level indicator, scene dock), then express the camera for the WHOLE stage
+ * in the card's zoom model (`viewBox.w = baseFit.w / zoom`, same aspect as the
+ * stage). With zero insets this equals `roomFitCameraTarget`.
+ */
+export function insetCameraTarget(input: InsetCameraInput): { zoom: number; viewBox: { x: number; y: number; w: number; h: number } } | null {
+  const { bounds, baseFit, stageWidth: W, stageHeight: H, insets, minZoom, maxZoom, safeFraction } = input;
+  if (![bounds.x, bounds.y, bounds.w, bounds.h, baseFit.w, baseFit.h, W, H].every(Number.isFinite)
+      || bounds.w <= 0 || bounds.h <= 0 || baseFit.w <= 0 || W <= 0 || H <= 0
+      || !(safeFraction > 0) || safeFraction > 1 || !(minZoom > 0) || maxZoom < minZoom) return null;
+  const l = Math.max(0, insets.left), r = Math.max(0, insets.right);
+  const t = Math.max(0, insets.top), b = Math.max(0, insets.bottom);
+  // Never let chrome eat more than half of an axis.
+  const scaleX = l + r > W * 0.5 ? (W * 0.5) / (l + r) : 1;
+  const scaleY = t + b > H * 0.5 ? (H * 0.5) / (t + b) : 1;
+  const left = l * scaleX, top = t * scaleY;
+  const innerW = W - (l + r) * scaleX;
+  const innerH = H - (t + b) * scaleY;
+  // Screen pixels per render unit so that bounds fill `safeFraction` of the inner rect.
+  const ppuWanted = Math.min((innerW * safeFraction) / bounds.w, (innerH * safeFraction) / bounds.h);
+  const zoomWanted = (ppuWanted * baseFit.w) / W;
+  const zoom = Math.min(maxZoom, Math.max(minZoom, zoomWanted));
+  const w = baseFit.w / zoom;
+  const h = w * (H / W);
+  const ppu = W / w;
+  const cx = bounds.x + bounds.w / 2;
+  const cy = bounds.y + bounds.h / 2;
+  return {
+    zoom,
+    viewBox: {
+      x: cx - (left + innerW / 2) / ppu,
+      y: cy - (top + innerH / 2) / ppu,
+      w,
+      h,
+    },
+  };
+}

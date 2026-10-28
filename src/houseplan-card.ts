@@ -306,9 +306,14 @@ import { StairViewRuntime, type StairViewHostPort } from './stairs-view';
 import { stairList, stairOutline, type Stair } from './stairs';
 import {
   focusChildren, focusParent, focusRegionBounds, focusRegionFromView, focusRegionList,
-  inflateToContext, newFocusRegionId, regionRoomId, resolveFocusTap, sameFocusNode, stairLanding,
-  type FocusNode, type FocusRegion,
+  inflateToContext, insetCameraTarget, newFocusRegionId, NO_INSETS, regionRoomId, resolveFocusTap,
+  sameFocusNode, stairLanding,
+  type FocusNode, type FocusRegion, type StageInsets,
 } from './fork-focus';
+import {
+  forkCardOptions, levelGlyphs, renderLevelIndicator, renderSceneDock, renderStepOut,
+  sceneDockService, type ForkCardOptions, type SceneDockItem,
+} from './fork-chrome';
 import { cleanFloorForRoom, type CleanFloorResult } from './clean-floor';
 import {
   floorGeometryKeyReader, floorPoolEntry, openingWallIndexKey, physicalBodiesKey, sunGeometryKey, wallUnionKey,
@@ -6409,14 +6414,10 @@ export class HouseplanCard extends LitElement {
     if (!stage || stage.clientWidth <= 0 || stage.clientHeight <= 0) return true;
     const base = this._baseVb();
     const baseFit = fitView(base, stage.clientWidth / stage.clientHeight);
-    const targetOf = (fitBounds: NonNullable<typeof bounds>) => roomFitCameraTarget({
-      bounds: fitBounds,
-      baseFit,
-      stageWidth: stage.clientWidth,
-      stageHeight: stage.clientHeight,
-      minZoom: HouseplanCard.ZOOM_MIN,
-      maxZoom: HouseplanCard.ZOOM_MAX,
-    });
+    // Fork §2: identical to roomFitCameraTarget with no on-map chrome; with
+    // the level indicator/scene dock the room is fitted beside them.
+    const targetOf = (fitBounds: NonNullable<typeof bounds>) =>
+      this._cameraTargetFor(fitBounds, baseFit, 0.8);
     let target = targetOf(bounds);
     const runtime = this._isoSceneRuntime, entries = this._renderIsoScene?.overlayFitEntries;
     if (target && this._effectiveProjection() === 'iso' && runtime && entries?.length) {
@@ -6471,12 +6472,7 @@ export class HouseplanCard extends LitElement {
     if (!stage || stage.clientWidth <= 0 || stage.clientHeight <= 0) return false;
     const base = this._baseVb();
     const baseFit = fitView(base, stage.clientWidth / stage.clientHeight);
-    const target = roomFitCameraTarget({
-      bounds, baseFit,
-      stageWidth: stage.clientWidth, stageHeight: stage.clientHeight,
-      minZoom: HouseplanCard.ZOOM_MIN, maxZoom: HouseplanCard.ZOOM_MAX,
-      safeFraction,
-    });
+    const target = this._cameraTargetFor(bounds, baseFit, safeFraction);
     if (!target) return false;
     const current = this._cameraState();
     const clamp = roomFitClampFrame(baseFit, current.viewBox, target.viewBox, bounds);
@@ -6484,6 +6480,30 @@ export class HouseplanCard extends LitElement {
     this._prepareCameraCommand();
     this._startCameraTransition(target, clamp, 'room', CAMERA_FIT_MS);
     return true;
+  }
+
+  /** Fork §2/§5: stage pixels covered by on-map chrome; fits keep content clear of them. */
+  private _chromeInsets(): StageInsets {
+    if (this._mode !== 'view') return NO_INSETS;
+    const right = this._levelIndicatorOn ? 72 : 0;
+    return right ? { ...NO_INSETS, right } : NO_INSETS;
+  }
+
+  /** Room-fit camera target, kept clear of the on-map chrome (FORK.md §2). */
+  private _cameraTargetFor(
+    bounds: { x: number; y: number; w: number; h: number },
+    baseFit: { x: number; y: number; w: number; h: number },
+    safeFraction = 0.8,
+  ): CameraState | null {
+    const stage = this._stageEl;
+    if (!stage || stage.clientWidth <= 0 || stage.clientHeight <= 0) return null;
+    return insetCameraTarget({
+      bounds, baseFit,
+      stageWidth: stage.clientWidth, stageHeight: stage.clientHeight,
+      insets: this._chromeInsets(),
+      minZoom: HouseplanCard.ZOOM_MIN, maxZoom: HouseplanCard.ZOOM_MAX,
+      safeFraction,
+    });
   }
 
   /** Normalized-plan rectangle → camera bounds in the current projection. */
@@ -6534,6 +6554,44 @@ export class HouseplanCard extends LitElement {
       const context = inflateToContext(raw, 0.5 * Math.max(base[2], base[3]));
       if (!this._flyToBounds(context)) this._fitAll('fit');
     }));
+  }
+
+  /** Fork card options (FORK.md §2, §5), normalized once per config object. */
+  private _forkOptionsCache: { config: unknown; value: ForkCardOptions } | null = null;
+  private get _fork(): ForkCardOptions {
+    const cached = this._forkOptionsCache;
+    if (cached && cached.config === this._config) return cached.value;
+    const value = forkCardOptions(this._config as unknown as Record<string, unknown>);
+    this._forkOptionsCache = { config: this._config, value };
+    return value;
+  }
+
+  /** Fork §2: the on-map level glyph stack replaces tabs in View/kiosk. */
+  private get _levelIndicatorOn(): boolean {
+    return this._fork.levelNav === 'indicator' && this._mode === 'view'
+      && !this._hasFixedFloor && this._model.length > 1;
+  }
+
+  /** Fork §2: a level glyph — switch levels (if needed) and fit the whole level. */
+  private _flyToLevel(id: string): void {
+    if (id === this._space) {
+      this._focusNode = null;
+      this._fitAll('fit');
+      return;
+    }
+    this._tabClick(id);
+    if (this._space === id) this._landOnSpace(id, null, null);
+  }
+
+  /** Every fork on-map control, painted above the plan inside the stage. */
+  private _renderForkChrome(): TemplateResult | typeof nothing {
+    if (this._booting || this._mode !== 'view') return nothing;
+    return html`${this._levelIndicatorOn
+      ? renderLevelIndicator(
+          levelGlyphs(this._model, this._space, this._fork.levelNavOrder),
+          (id) => this._flyToLevel(id),
+        )
+      : nothing}`;
   }
 
   /** Unobtrusive inline hint: some objects stand an order of magnitude away
@@ -6904,6 +6962,18 @@ export class HouseplanCard extends LitElement {
     this._prepareCameraCommand();
     const vb = this._baseVb();
     const fit = fitView(vb, this._stageAspect());
+    const insets = this._chromeInsets();
+    if (insets.left || insets.right || insets.top || insets.bottom) {
+      // Fork §2: Fit all keeps the whole level clear of the on-map chrome.
+      const target = this._cameraTargetFor({ x: vb[0], y: vb[1], w: vb[2], h: vb[3] }, fit, 1);
+      if (target) {
+        const clamp = roomFitClampFrame(fit, this._cameraState().viewBox, target.viewBox,
+          { x: vb[0], y: vb[1], w: vb[2], h: vb[3] });
+        target.viewBox = this._clampView(target.viewBox, clamp);
+        this._startCameraTransition(target, clamp, reason, CAMERA_FIT_MS);
+        return;
+      }
+    }
     this._startCameraTransition(
       { zoom: 1, viewBox: { ...fit } },
       fit,
@@ -10898,7 +10968,9 @@ export class HouseplanCard extends LitElement {
     }
     const space = this._spaceModel();
     if (!space) return nothing;
-    const navigationSpaces = fixed.kind === 'valid' ? [space] : model;
+    // Fork §2: the level indicator replaces the text tab strip in View/kiosk.
+    const navigationSpaces = fixed.kind === 'valid' ? [space]
+      : this._levelIndicatorOn ? [] : model;
     const vb = space.vb;
     let projection = this._effectiveProjection();
     this._renderProjection = projection;
@@ -10999,7 +11071,7 @@ export class HouseplanCard extends LitElement {
             <ha-icon icon="mdi:home-city"></ha-icon>
             ${this._config.title || this._t('card.title')}
           </div>`}
-          <nav class="tabs" aria-label=${this._t('nav.spaces')} @pointermove=${(e: PointerEvent) => this._tabPointerMove(e)}>
+          <nav class="tabs ${this._levelIndicatorOn && !this._canEdit ? 'fork-levelnav' : ''}${this._levelIndicatorOn && this._canEdit ? 'fork-levelnav-edit' : ''}" aria-label=${this._t('nav.spaces')} @pointermove=${(e: PointerEvent) => this._tabPointerMove(e)}>
             ${navigationSpaces.map(
               (s) => html`<button
                 data-hp="space-tab" data-id="${s.id}"
@@ -11421,6 +11493,7 @@ export class HouseplanCard extends LitElement {
           <div class="zoombadge" data-hp-live-zoom hidden><span data-hp-live-zoom-value></span></div>
           ${this._renderFarHint()}
           ${this._renderHomeArrow(this._baseVb(projection, isoScene))}
+          ${this._renderForkChrome()}
           ${this._renderEditorRuntimeLoading()}
           ${this._renderRecoveryOverlay()}
           ${this._summary?.renderMeasure()}

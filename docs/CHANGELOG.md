@@ -7,6 +7,11 @@
 - Stairs fly-landing: following a stair switches levels and then flies the
   camera to the stair on the new level that leads back (nearest one when
   several; Fit all when none). (FORK.md §1)
+- Level indicator: `level_nav: indicator` replaces the View/kiosk tab strip
+  with an on-map stack of level glyphs; fits keep the plan clear of it.
+  (FORK.md §2)
+- Touch View no longer shows a room's "open HA area" link: it is a page
+  change and a hit target that covered stairs at phone zoom. (FORK.md §7)
 
 ## v1.82.0 — 2026-10-21
 

@@ -448,4 +448,14 @@ export interface CardConfig {
   kiosk?: boolean;
   /** Kiosk auto-carousel: seconds between space switches, 0/undefined = off. */
   cycle?: number;
+  /** Fork (FORK.md §2): `indicator` replaces the View/kiosk tab strip with an
+   *  on-map level glyph stack. Default `tabs` (upstream behaviour). */
+  level_nav?: 'tabs' | 'indicator';
+  /** Fork §2: glyph order top-to-bottom — `tabs` (first tab on top, default)
+   *  or `reverse`. */
+  level_nav_order?: 'tabs' | 'reverse';
+  /** Fork §5: on-map scene dock — scripts/scenes run by a round icon button. */
+  scene_dock?: Array<{ entity: string; icon?: string; name?: string } | string>;
+  /** Fork §5: dock corner, default `bottom-left`. */
+  scene_dock_corner?: 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right';
 }

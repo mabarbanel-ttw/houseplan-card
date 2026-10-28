@@ -12,6 +12,7 @@ import { devicesStyles } from './styles/devices.styles';
 import { chromeStyles } from './styles/chrome.styles';
 import { dialogsStyles } from './styles/dialogs.styles';
 import { isoTilesStyles } from './styles/iso-tiles.styles';
+import { forkStyles } from './styles/fork.styles';
 
 export { baseStyles, planStyles, devicesStyles, chromeStyles, dialogsStyles };
 
@@ -19,4 +20,6 @@ export const cardStyles: CSSResultGroup = [
   baseStyles, planStyles, devicesStyles, chromeStyles, dialogsStyles,
   // #649: last, so the 2.5D tile rules win over Flat marker rules of equal weight.
   isoTilesStyles,
+  // Fork (FORK.md): on-map chrome only; selectors are fork-prefixed.
+  forkStyles,
 ];

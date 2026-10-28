@@ -111,6 +111,9 @@ export const FORK_LAYOUT = {
   'm-x1c': { s: 'upper', x: 0.19, y: 0.21 },
   'm-p1s': { s: 'upper', x: 0.28, y: 0.21 },
   'm-valve': { s: 'lower', x: 0.8, y: 0.22 },
+  // Synthetic demo devices kept off the stairs.
+  d_lock: { s: 'main', x: 0.53, y: 0.53 },
+  d_motion: { s: 'main', x: 0.75, y: 0.43 },
 };
 
 /** Entities the fixture adds to the synthetic HA registry/state. */

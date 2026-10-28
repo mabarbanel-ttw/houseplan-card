@@ -54,7 +54,7 @@ async function setup(page, options = CARD_OPTIONS) {
     await window.__hpTest.setServerConfig(config);
     await window.__hpTest.setLayout(layout);
     await window.__hpTest.setMode('view');
-    await window.__hpTest.switchSpace('main');
+    await window.__card._tabClick('main');
     card.hass = { ...card.hass };
     await window.__hpTest.settled();
   }, { config: FORK_CONFIG, layout: FORK_LAYOUT, entities: FORK_ENTITIES, options });
@@ -100,12 +100,31 @@ async function tap(page, vp, point) {
   else await page.mouse.click(point.x, point.y);
 }
 
-/** Fraction of the stage occupied by a plan-space point (0..1 each axis). */
+/** Where a plan point sits relative to the chrome-free part of the stage:
+ *  fx/fy are 0.5 when it is centred in the area left by the fork chrome. */
 const stageFraction = (page, nx, ny) => page.evaluate(([x, y]) => {
   const c = window.__card;
   const v = c._view;
-  return { fx: (x * 1000 - v.x) / v.w, fy: (y * 1000 - v.y) / v.h };
+  const stage = c.renderRoot.querySelector('.stage');
+  const W = stage.clientWidth, H = stage.clientHeight;
+  const i = c._chromeInsets();
+  const px = ((x * 1000 - v.x) / v.w) * W, py = ((y * 1000 - v.y) / v.h) * H;
+  return { fx: (px - i.left) / (W - i.left - i.right), fy: (py - i.top) / (H - i.top - i.bottom) };
 }, [nx, ny]);
+
+/** Close any surface left open, return to the main level, fit all. */
+async function reset(page) {
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.evaluate(async () => {
+    const c = window.__card;
+    c._closeInfoCard?.();
+    c._tapConfirm = null;
+    if (c._space !== 'main') c._tabClick('main');
+    await c.updateComplete;
+    c._fitAll('fit');
+  });
+  await settle(page, 200);
+}
 
 const near = (a, b, tol) => Math.abs(a - b) <= tol;
 
@@ -148,6 +167,8 @@ async function scenarioStairs(page, vp) {
   check(`${tag}: main landing is the stair that leads up`, near(f.fx, 0.5, 0.06) && near(f.fy, 0.5, 0.06), true);
   await shot(page, vp, '01-stairs-4-landed-main');
   // Down to the lower level and back.
+  await page.evaluate(() => window.__card._fitAll('fit'));
+  await settle(page);
   const mainDown = await centerOf(page, '[data-hp="stair"][data-id="main-down"] .hp-stair-hit');
   await tap(page, vp, mainDown);
   await settle(page, 300);
@@ -156,12 +177,72 @@ async function scenarioStairs(page, vp) {
   f = await stageFraction(page, 0.45, 0.55);
   check(`${tag}: lower landing centred`, near(f.fx, 0.5, 0.06) && near(f.fy, 0.5, 0.06), true);
   await shot(page, vp, '01-stairs-5-landed-lower');
-  await page.evaluate(() => window.__hpTest.switchSpace('main'));
+  await page.evaluate(() => window.__card._tabClick('main'));
+  await settle(page);
+}
+
+async function scenarioLevels(page, vp) {
+  const tag = `${vp.key}.levels`;
+  await page.evaluate(() => window.__card._tabClick('main'));
+  await page.evaluate(() => window.__card._fitAll('fit'));
+  await settle(page);
+  const info = await page.evaluate(() => {
+    const root = window.__card.renderRoot;
+    return {
+      tabs: root.querySelectorAll('[data-hp="space-tab"]').length,
+      glyphs: [...root.querySelectorAll('[data-hp="fork-level"]')].map((b) => ({
+        id: b.dataset.id, current: b.classList.contains('current'), text: b.textContent.trim(),
+      })),
+    };
+  });
+  check(`${tag}: View has no text tab strip`, info.tabs, 0);
+  check(`${tag}: one glyph per level, tab order top-to-bottom`, info.glyphs.map((g) => g.id), ['upper', 'main', 'lower']);
+  check(`${tag}: current level highlighted`, info.glyphs.filter((g) => g.current).map((g) => g.id), ['main']);
+  check(`${tag}: glyphs carry no text`, info.glyphs.every((g) => g.text === ''), true);
+  await shot(page, vp, '02-levels-0-main');
+  const upper = await centerOf(page, '[data-hp="fork-level"][data-id="upper"]');
+  await tap(page, vp, upper);
+  await sleep(80);
+  await shot(page, vp, '02-levels-1-flying-upper');
+  await settle(page, 250);
+  let s = await state(page);
+  check(`${tag}: glyph switched to upper`, s.space, 'upper');
+  const frame = await page.evaluate(() => {
+    const c = window.__card;
+    const [x, y, w, h] = c._baseVb();
+    const v = c._view;
+    const stage = c.renderRoot.querySelector('.stage').getBoundingClientRect();
+    const levels = c.renderRoot.querySelector('[data-hp="fork-levels"]').getBoundingClientRect();
+    const ppu = stage.width / v.w;
+    return {
+      inside: x >= v.x - 1e-6 && y >= v.y - 1e-6 && x + w <= v.x + v.w + 1e-6 && y + h <= v.y + v.h + 1e-6,
+      clear: stage.left + (x + w - v.x) * ppu <= levels.left + 1,
+    };
+  });
+  check(`${tag}: glyph lands on fit-all (whole level visible)`, frame.inside, true);
+  check(`${tag}: fit-all keeps the level clear of the indicator`, frame.clear, true);
+  await shot(page, vp, '02-levels-2-upper');
+  const lower = await centerOf(page, '[data-hp="fork-level"][data-id="lower"]');
+  await tap(page, vp, lower);
+  await settle(page, 300);
+  s = await state(page);
+  check(`${tag}: glyph switched to lower`, s.space, 'lower');
+  await shot(page, vp, '02-levels-3-lower');
+  // Editors keep the text tabs.
+  const editorTabs = await page.evaluate(async () => {
+    await window.__hpTest.setMode('plan');
+    const n = window.__card.renderRoot.querySelectorAll('[data-hp="space-tab"]').length;
+    await window.__hpTest.setMode('view');
+    return n;
+  });
+  check(`${tag}: editors keep the tab strip`, editorTabs, 3);
+  await page.evaluate(() => window.__card._tabClick('main'));
   await settle(page);
 }
 
 const RUN = [
   ['stairs', scenarioStairs],
+  ['levels', scenarioLevels],
 ];
 
 for (const vp of VIEWPORTS) {
@@ -172,7 +253,7 @@ for (const vp of VIEWPORTS) {
     await setup(page);
     for (const [name, fn] of RUN) {
       if (!want(name)) continue;
-      try { await fn(page, vp); } catch (error) {
+      try { await reset(page); await fn(page, vp); } catch (error) {
         check(`${vp.key}.${name}: threw`, String(error?.stack || error), 'no exception');
       }
     }

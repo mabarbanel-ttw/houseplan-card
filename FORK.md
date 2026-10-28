@@ -51,3 +51,43 @@ sense of walking up the stairs.
 `src/stairs-view.ts` (navigation routes through `_followStair`),
 `src/houseplan-card.ts` (`_followStair`, `_landOnSpace`, `_flyToBounds`,
 `_planRectBounds`), `test/fork-focus.test.mjs`, `demo/fork/*`.
+
+## 2. Level indicator instead of tabs
+
+**What.** Card option `level_nav: indicator` hides the text tab strip in View
+and kiosk and paints a compact vertical stack of level glyphs on the right edge
+of the map (one stylised floor slab per space; the current level lit in the
+accent colour, the others ghosted). Tapping a glyph switches to that level and
+flies to its whole content (the same landing as a stair without a link back);
+tapping the current level's glyph fits the whole level. The glyphs carry no
+text — the level title is only the accessible name / desktop hover title.
+
+Editors keep the ordinary tab strip (spaces are still created, renamed and
+reordered there). A card with `floor` (a fixed level) or a house with one
+level shows no indicator.
+
+On-map chrome never sits on top of the plan you are trying to see: every fit
+the card performs — Fit all, double-tap, room fit, nested fly-in, stair and
+level landings — fits into the part of the stage left of the indicator (and,
+with §5, clear of the scene dock). Without fork chrome the camera maths is
+bit-for-bit upstream room fit (unit-tested).
+
+**Config keys** (Lovelace card YAML; normalized in `src/fork-chrome.ts`):
+
+```yaml
+type: custom:houseplan-card
+level_nav: indicator        # default: tabs (upstream behaviour)
+level_nav_order: tabs       # glyphs top-to-bottom: tabs (first tab on top, default) | reverse
+```
+
+Order your tabs Upper, Main, Lower (Plan editor tab drag) to read the stack as
+the building; or keep the upstream ground-first order and set
+`level_nav_order: reverse`.
+
+**Files.** `src/fork-chrome.ts` (`forkCardOptions`, `levelGlyphs`,
+`renderLevelIndicator`), `src/fork-focus.ts` (`insetCameraTarget`),
+`src/styles/fork.styles.ts`, `src/styles.ts`, `src/types.ts` (`CardConfig`),
+`src/houseplan-card.ts` (`_fork`, `_levelIndicatorOn`, `_flyToLevel`,
+`_renderForkChrome`, `_chromeInsets`, `_cameraTargetFor`; room fit and
+`_resetZoom` use the chrome-aware target), `test/fork-chrome.test.mjs`,
+`test/fork-focus.test.mjs`.
