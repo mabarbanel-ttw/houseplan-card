@@ -162,13 +162,13 @@ export const forkStyles = css`
      fades out (and is not tappable); it fades in during the fly-in. */
   .stage.mode-view .dev,
   .stage.mode-view .fork-reveal {
-    transition: opacity 240ms ease, visibility 0s linear 0s, scale 240ms ease;
+    transition: opacity 240ms ease, visibility 0s linear 0s;
   }
   .stage.mode-view .dev.fork-hidden,
   .stage.mode-view .fork-reveal.fork-hidden {
     opacity: 0 !important;
     visibility: hidden;
-    transition: opacity 200ms ease, visibility 0s linear 200ms, scale 240ms ease;
+    transition: opacity 200ms ease, visibility 0s linear 200ms;
   }
   .stage.mode-view .dev.fork-hidden,
   .stage.mode-view .dev.fork-hidden *,
@@ -176,11 +176,11 @@ export const forkStyles = css`
   .stage.mode-view .fork-reveal.fork-hidden * {
     pointer-events: none !important;
   }
-  /* The whole level shows room devices at reduced density: smaller, icon only. */
-  .stage.mode-view .dev.fork-reduced { scale: 0.72; }
+  /* The whole level shows room devices at reduced density: smaller (the
+     devlayer's icon size, see _forkDensity — never a per-marker transform,
+     which would break the #564 face/floor stacking), no value text or LQI.
+     Battery and maintenance marks stay: they are status. */
   .stage.mode-view .dev.fork-reduced .device-sections,
-  .stage.mode-view .dev.fork-reduced .device-battery,
-  .stage.mode-view .dev.fork-reduced .device-maintenance,
   .stage.mode-view .dev.fork-reduced [class*='lqi'] {
     display: none;
   }

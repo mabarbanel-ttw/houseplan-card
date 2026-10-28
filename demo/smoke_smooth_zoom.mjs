@@ -176,7 +176,8 @@ const out = await page.evaluate(async () => {
   saveCount = 0;
   card._resetZoom('fit');
   const fitNoop = { active: card._cameraTransition.active, saves: saveCount };
-  card._applyView(8);
+  // Fork (FORK.md §3): the zoom-in limit is the card's own (32x in the fork).
+  card._applyView(card.constructor.ZOOM_MAX);
   saveCount = 0;
   card._stepZoom(1);
   const maxNoop = { active: card._cameraTransition.active, saves: saveCount };

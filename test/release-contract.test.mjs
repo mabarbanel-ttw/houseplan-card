@@ -122,7 +122,12 @@ test('release notes enforce the canonical bilingual short body and pinned links'
   assert.equal(validateReleaseNotes(nested, { tag, repo }).trim(), nested.trim());
 });
 
-test('current repository release metadata satisfies its own publication contract', () => {
+// Fork (FORK.md): a `X.Y.Z-matt.N` release is published from the fork and is
+// not part of upstream's release-ledger cycle; the contract's fixtures below
+// still run.
+test('current repository release metadata satisfies its own publication contract', {
+  skip: /-matt\.\d+$/.test(packageVersion) ? 'fork release (FORK.md): upstream ledger cycle does not apply' : false,
+}, () => {
   const result = assertReleaseContract({ tag, repo, requirePrerelease: packageIsPrerelease,
     verifyPublishedStable: true });
   assert.equal(result.version, packageVersion);

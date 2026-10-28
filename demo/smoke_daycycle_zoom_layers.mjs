@@ -194,12 +194,13 @@ const nearWhite = await page.evaluate(async ({ encoded, stage }) => {
 
 const planReasons = (snap) => planLayers(snap).find((layer) => /\bplan-svg\b/.test(layer.name))?.reasons || [];
 const out = {
-  dayNightSafeAt800: zoomedIn.state.daycycle && zoomedIn.state.safe && zoomedIn.state.zoom === 8,
-  reloadRestores800Untouched: reloaded.state.daycycle && !reloaded.state.safe && reloaded.state.zoom === 8,
+  // Fork (FORK.md §3): 30 wheel steps now reach the fork's 32x limit (≥ 800 %).
+  dayNightSafeAt800: zoomedIn.state.daycycle && zoomedIn.state.safe && zoomedIn.state.zoom >= 8,
+  reloadRestores800Untouched: reloaded.state.daycycle && !reloaded.state.safe && reloaded.state.zoom === zoomedIn.state.zoom,
   // K1: no frozen raster — the explicit layer is a trivial 3D transform.
   settledSceneHasNoWillChangeHint: [zoomedIn, buttons, pinched, navigated]
     .every((snap) => snap.state.planWillChange === 'opacity'),
-  buttonAndPinchChangedTheCamera: buttons.state.safe && pinched.state.zoom < 8,
+  buttonAndPinchChangedTheCamera: buttons.state.safe && pinched.state.zoom < zoomedIn.state.zoom,
   // The scene stays an explicit layer (#582), but no reason is the hint that
   // freezes the raster scale, and it is never an implicit overlap layer.
   settledSceneLayerIsExplicitWithoutHint: planReasons(zoomedIn).some((reason) => /will-change: opacity/.test(reason))

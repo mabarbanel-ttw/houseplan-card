@@ -284,7 +284,7 @@ const out = await page.evaluate(async () => {
   const isoMargins = margins();
   result.isoUsesProjectedBounds = c._effectiveProjection() === 'iso'
     && Object.values(isoMargins).every((value) => value >= 0.099)
-    && (c._zoom === 8 || Math.min(...Object.values(isoMargins)) <= 0.102);
+    && (c._zoom === c.constructor.ZOOM_MAX || Math.min(...Object.values(isoMargins)) <= 0.102);
 
   const kiosk = document.createElement('houseplan-card');
   kiosk.setConfig({ type: 'custom:houseplan-card', kiosk: true, cycle: 0 });

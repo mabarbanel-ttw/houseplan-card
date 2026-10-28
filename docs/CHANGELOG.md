@@ -2,7 +2,10 @@
 
 ## Unreleased
 
-### Fork `matt/single-pane` (see FORK.md)
+## v1.82.0-matt.1 — 2026-10-28
+
+Fork `mabarbanel-ttw/houseplan-card`, branch `matt/single-pane`, on top of
+upstream v1.82.0 (see FORK.md).
 
 - Stairs fly-landing: following a stair switches levels and then flies the
   camera to the stair on the new level that leads back (nearest one when

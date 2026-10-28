@@ -262,7 +262,7 @@ import {
   type CameraState, type CameraTransitionReason, type CameraTransitionState,
 } from './viewport-transition'; import { measuredCardHeaderHeight, settleSoftStageLayout } from './boot-soft-layout';
 import {
-  PlanTapGestureController, roomFitCameraTarget, roomFitClampFrame,
+  PlanTapGestureController, roomFitClampFrame,
   roomFitGeometryBounds, roomFitOwnerFromPath, STAGE_TAP_DISTANCE_PX,
   type RoomFitGestureCandidate,
 } from './room-fit';
@@ -306,9 +306,9 @@ import { StairViewRuntime, type StairViewHostPort } from './stairs-view';
 import { stairList, stairOutline, type Stair } from './stairs';
 import {
   focusChildren, focusParent, focusPath, focusRegionBounds, focusRegionFromView, focusRegionList,
-  nestedAway, parseReveal, revealShown, type RevealContext,
+  parseReveal, revealShown, type RevealContext,
   clientToPlanNorm, inflateToContext, insetCameraTarget, newFocusRegionId, NO_INSETS, regionRoomId, resolveFocusTap,
-  sameFocusNode, stairLanding,
+  stairLanding,
   type FocusNode, type FocusRegion, type StageInsets,
 } from './fork-focus';
 import {
@@ -358,7 +358,7 @@ import { isoWallMaterialVars, parseCssColor } from './iso-materials'; import { I
 import { renderIsoTileShadow } from './iso-tiles';
 import { displayVersion } from './card-version';
 import { ConfigFingerprintPass } from './config-fingerprint-pass';
-const CARD_VERSION = '1.82.0';
+const CARD_VERSION = '1.82.0-matt.1';
 const EDITOR_RETRY_ASSET = '__HOUSEPLAN_EDITOR_RETRY_ASSET__';
 const ISO_RETRY_ASSET = '__HOUSEPLAN_ISO_RETRY_ASSET__';
 const PDF_RETRY_ASSET = '__HOUSEPLAN_PDF_RETRY_ASSET__';
@@ -6788,9 +6788,7 @@ export class HouseplanCard extends LitElement {
       }
     }
     // §7: the whole level shows room devices at reduced density (icon only, smaller).
-    if (!this._focusNode && this._zoom < 1.5 && (this._config as any)?.level_density !== 'full') {
-      classes.push('fork-reduced');
-    }
+    if (this._forkDensity() < 1) classes.push('fork-reduced');
     return classes.join(' ');
   }
 
@@ -6942,6 +6940,24 @@ export class HouseplanCard extends LitElement {
       const context = inflateToContext(raw, 0.5 * Math.max(base[2], base[3]));
       if (!this._flyToBounds(context)) this._fitAll('fit');
     }));
+  }
+
+  /**
+   * Fork (FORK.md §3): markers grow with the plan exactly as upstream up to
+   * 8x (upstream's limit) and then hold their size, so the deeper fly-in
+   * levels (up to 32x) spread equipment apart instead of ballooning every
+   * marker to the size of the stage.
+   */
+  private _iconViewWidth(view: { w: number }): number {
+    const fit = fitView(this._baseVb(), this._stageAspect());
+    // §7: reduced density at the whole level = smaller markers (wider basis).
+    return Math.max(view.w, fit.w / 8) / this._forkDensity();
+  }
+
+  /** Fork §7: marker scale at the whole level (no room focused, zoom < 1.5). */
+  private _forkDensity(): number {
+    return this._mode === 'view' && !this._focusNode && this._zoom < 1.5
+      && (this._config as any)?.level_density !== 'full' ? 0.72 : 1;
   }
 
   /** Fork card options (FORK.md §2, §5), normalized once per config object. */
@@ -11887,7 +11903,7 @@ export class HouseplanCard extends LitElement {
                  space-card, so the two renderers agree. The compatibility
                  base is resolved before `iconCqw`; only the per-device and
                  kiosk multipliers still feed --dev-size. */}
-          <div class="devlayer" data-hp-live-layer="camera" style="--icon-size:${iconCqw(iconPct, space, view.w, this._mode === 'view' ? this._kioskScale.icon : 1).toFixed(3)}cqw;--device-base-size:${iconCqw(deviceBasePct, space, view.w, this._mode === 'view' ? this._kioskScale.icon : 1).toFixed(3)}cqw;--rl-icon-size:${iconCqw(iconPct, space, this._roomLabelReferenceViewWidth(view), this._mode === 'view' ? this._kioskScale.icon : 1).toFixed(3)}cqw;--rl-font:${this._mode === 'view' ? this._kioskScale.font : 1}">
+          <div class="devlayer" data-hp-live-layer="camera" style="--icon-size:${iconCqw(iconPct, space, this._iconViewWidth(view), this._mode === 'view' ? this._kioskScale.icon : 1).toFixed(3)}cqw;--device-base-size:${iconCqw(deviceBasePct, space, this._iconViewWidth(view), this._mode === 'view' ? this._kioskScale.icon : 1).toFixed(3)}cqw;--rl-icon-size:${iconCqw(iconPct, space, this._roomLabelReferenceViewWidth(view), this._mode === 'view' ? this._kioskScale.icon : 1).toFixed(3)}cqw;--rl-font:${this._mode === 'view' ? this._kioskScale.font : 1}">
             ${renderRadarLive(
               [...this._radarLive.frames.values()].filter((frame) => {
                 const marker = this._serverCfg?.markers.find((item) => item.id === frame.marker_id);

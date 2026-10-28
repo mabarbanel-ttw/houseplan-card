@@ -11,6 +11,10 @@ without ever leaving the map.
 Releases are tagged `vX.Y.Z-matt.N` on this fork and keep the upstream HACS
 layout (`hacs.json` → `houseplan.zip`, `zip_release: true`).
 
+Contents: §1 stairs fly-landing · §2 level indicator · §3 nested fly-in
+targets · §4 touch callout · §5 scene dock · §6 "not in HA" ghost · §7
+progressive disclosure · §8 compact value badges · §9 touch fixes · Release.
+
 UI copy rule for every fork feature: no sentences or text badges in the UI;
 state is shown visually (dimmed, dashed outline, icon); labels are at most one
 or two words.
@@ -311,8 +315,13 @@ fly-in, out again on back-out (240 ms opacity; reduced motion = instant):
   as entered for its markers (≥ 40 % for decor), so pinch/wheel work without
   tapping;
 - the **whole level** (no room focused, zoom < 1.5) shows room devices at
-  reduced density: 72 % size, icon only (no value badges, battery, LQI,
-  maintenance marks). A focused room shows its devices at full size.
+  reduced density: 72 % size, icon only (no value badges or LQI; battery and
+  maintenance marks stay, they are status). A focused room shows its devices
+  at full size.
+- beyond upstream's 8x zoom (§3 raises the limit to 32x) markers keep their
+  8x size, so deeper levels spread equipment apart instead of ballooning
+  every marker to the size of the stage (also keeps compositor layers
+  stage-sized; `smoke_daycycle_zoom_layers`).
 - per-item override with `reveal` (marker or decor):
   `"room"` = only once its room is the position (or the room fills ≥ 70 % of
   the view); `"region:<id>"` = only once that region is on the path (or fills
@@ -398,3 +407,34 @@ Verified with touch emulation (`hasTouch`, `(hover: none)`, `(pointer:
 coarse)`) on 1366×1024, 1024×1366 and 390×844 in `demo/fork/shots.mjs`; pinch
 and pan are unchanged upstream code paths (`smoke_room_fit`, `smoke_stairs`,
 `smoke_pan_any_zoom` still pass, see release notes in the report).
+
+## Release (how `v1.82.0-matt.1` was produced)
+
+1. Versions: `package.json`, `package-lock.json` (2), `src/houseplan-card.ts`
+   and `src/houseplan-editor-runtime.ts` (`CARD_VERSION`),
+   `custom_components/houseplan/manifest.json`, `custom_components/houseplan/const.py`
+   → `1.82.0-matt.1`. `hacs.json` unchanged (`houseplan.zip`, `zip_release`).
+2. `npm ci --ignore-scripts` (upstream git hooks are not installed in the fork),
+   `npm run bundle:release` (dist + `custom_components/houseplan/frontend`),
+   `node scripts/bundle-tree.mjs dist custom_components/houseplan/frontend`.
+3. Ratchets: `node scripts/ratchets.mjs tighten` set the size ceilings to the
+   fork's facts (the card core grew by the fork code: `houseplan-card.ts`
+   13166 → ~13.75k lines, initial View graph 333 938 → ~343 kB gzip);
+   `node scripts/ci-registry-inventory.mjs --write`,
+   `node scripts/ci-profiles.mjs --write`.
+4. The upstream release-ledger contract test is skipped for `-matt.N`
+   versions (fork releases are not part of upstream's stable cycle).
+5. Asset build exactly like upstream `release.yml`:
+   `git -c core.autocrlf=false archive --format=zip --output=houseplan.zip <sha>:custom_components/houseplan`,
+   `node scripts/verify-houseplan-zip.mjs houseplan.zip custom_components/houseplan/frontend 1.82.0-matt.1`,
+   `cp dist/houseplan-card.js houseplan.zip release-assets/`,
+   `node scripts/release-assets.mjs sums release-assets`.
+6. `gh release create v1.82.0-matt.1 --repo mabarbanel-ttw/houseplan-card`
+   with `houseplan.zip`, `houseplan-card.js`, `SHA256SUMS` (full release).
+
+Install: HACS → custom repository `mabarbanel-ttw/houseplan-card`
+(Integration), version `v1.82.0-matt.1`; restart Home Assistant.
+
+Verification run: `node demo/fork/shots.mjs` (real mouse/touch input against
+the synthetic three-level fixture `demo/fork/fixture.mjs`; desktop 1440×900,
+iPad 1366×1024 and 1024×1366 and phone 390×844 with touch emulation).

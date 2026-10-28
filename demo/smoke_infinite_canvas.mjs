@@ -216,7 +216,8 @@ Object.assign(out, await page.evaluate(async () => {
   o.zoomOutStopsAtThree = Math.abs(c._zoom - 1 / 3) < 1e-9
     && Math.abs(c._view.w - fit.w * 3) < fit.w * 0.02;
   c._applyView(50);
-  o.zoomInUnchanged = c._zoom === 8;
+  // Fork (FORK.md §3): the zoom-in limit is the card's own (32x).
+  o.zoomInUnchanged = c._zoom === c.constructor.ZOOM_MAX;
   c._resetZoom();
   await window.__waitForCamera(c);
   return o;
