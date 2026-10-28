@@ -41,6 +41,11 @@ export const FORK_CONFIG = {
         stair('main-up', 0.88, 0.475, 0, 'upper'),
         stair('main-down', 0.62, 0.475, 180, 'lower'),
       ],
+      decor: [
+        // Rack and faceplate drawings: detail that appears one level early.
+        { id: 'dec-rack', kind: 'rect', x: 0.398, y: 0.118, w: 0.084, h: 0.114 },
+        { id: 'dec-udm', kind: 'rect', x: 0.404, y: 0.13, w: 0.072, h: 0.018 },
+      ],
       focus_regions: [
         // The equipment rack in the living room's NE corner …
         { id: 'rack', x: 0.395, y: 0.115, w: 0.09, h: 0.12, room_id: 'living' },
@@ -78,9 +83,13 @@ export const FORK_CONFIG = {
       space: 'main', room_id: 'living', size: 0.45, presentation: 'ghost' },
     { id: 'm-ikea', binding: 'virtual', name: 'IKEA gateway', icon: 'mdi:access-point',
       space: 'main', room_id: 'living', size: 0.45, presentation: 'ghost' },
-    // A dumb fixture that is not in HA at all.
+    // A dumb fixture that is not in HA at all; room detail (hidden at the level).
     { id: 'm-candles', binding: 'virtual', name: 'Candles', icon: 'mdi:candle',
-      space: 'main', room_id: 'living', presentation: 'ghost' },
+      space: 'main', room_id: 'living', presentation: 'ghost', reveal: 'room' },
+    { id: 'm-timer', binding: 'entity:sensor.office_stairs_timer', name: 'Timer', icon: 'mdi:timer-outline',
+      space: 'main', room_id: 'hall',
+      value_badge: { enabled: true, position: 'bottom',
+        source: { kind: 'entity_state', entity_id: 'sensor.office_stairs_timer' } } },
     { id: 'm-lamp', binding: 'entity:light.living_lamp', name: 'Lamp', icon: 'mdi:floor-lamp',
       space: 'main', room_id: 'living', tap_action: 'callout' },
     // Upper office printers.
@@ -113,6 +122,7 @@ export const FORK_LAYOUT = {
   'm-valve': { s: 'lower', x: 0.8, y: 0.22 },
   // Synthetic demo devices kept off the stairs.
   d_lock: { s: 'main', x: 0.53, y: 0.53 },
+  'm-timer': { s: 'main', x: 0.69, y: 0.5 },
   d_light1: { s: 'main', x: 0.14, y: 0.2 },
   d_lamp: { s: 'main', x: 0.24, y: 0.3 },
   d_tv: { s: 'main', x: 0.08, y: 0.5 },
@@ -123,10 +133,11 @@ export const FORK_LAYOUT = {
 /** Entities the fixture adds to the synthetic HA registry/state. */
 export const FORK_ENTITIES = [
   ['sensor.udm_state', 'living_room', 'online', { friendly_name: 'UDM Pro' }],
-  ['sensor.udm_wan_speed', 'living_room', '940', { friendly_name: 'WAN', unit_of_measurement: 'M' }],
+  ['sensor.udm_wan_speed', 'living_room', '940', { friendly_name: 'WAN', unit_of_measurement: 'Mbit/s', device_class: 'data_rate' }],
+  ['sensor.office_stairs_timer', 'hallway', '95', { friendly_name: 'Stairs timer', unit_of_measurement: 'min', device_class: 'duration' }],
   ...[1, 2, 3, 4, 5, 6].map((n) => [
-    `sensor.udm_port_${n}_speed`, 'living_room', n === 3 ? '0.1' : n === 6 ? '0' : '1',
-    { friendly_name: `Port ${n}`, unit_of_measurement: 'G' },
+    `sensor.udm_port_${n}_speed`, 'living_room', n === 3 ? '100' : n === 6 ? '0' : '1000',
+    { friendly_name: `Port ${n}`, unit_of_measurement: 'Mbit/s', device_class: 'data_rate' },
   ]),
   ['switch.rack_poe', 'living_room', 'on', { friendly_name: 'Rack PoE' }],
   ['light.living_lamp', 'living_room', 'on', { friendly_name: 'Living lamp', brightness: 180 }],

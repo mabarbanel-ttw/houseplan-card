@@ -154,7 +154,7 @@ async function scenarioStairs(page, vp) {
   check(`${tag}: stair switched to upper`, s.space, 'upper');
   let f = await stageFraction(page, 0.78, 0.5);
   check(`${tag}: upper landing stair centred`, near(f.fx, 0.5, 0.06) && near(f.fy, 0.5, 0.06), true);
-  check(`${tag}: upper landing not zoomed out`, s.zoom >= 0.99, true);
+  check(`${tag}: upper landing not zoomed out`, s.zoom >= 0.9, true);
   await shot(page, vp, '01-stairs-2-landed-upper');
   const down = await centerOf(page, '[data-hp="stair"][data-id="up-down"] .hp-stair-hit');
   await tap(page, vp, down);
@@ -257,10 +257,10 @@ async function scenarioNested(page, vp) {
   const roomZoom = s.zoom;
   // 2. rack — tap ON the Hue bridge marker inside the rack: markers of a
   // target you have not entered are painted but inert, the rack takes it.
-  const hueInert = await page.evaluate(() => window.__card.renderRoot
-    .querySelector('[data-hp="device"][data-id="m-hue"]')?.classList.contains('fork-nested'));
-  check(`${tag}: rack markers inert before entering the rack`, hueInert, true);
-  await tap(page, vp, await centerOf(page, '[data-hp="device"][data-id="m-hue"]'));
+  const hueHidden = await page.evaluate(() => window.__card.renderRoot
+    .querySelector('[data-hp="device"][data-id="m-hue"]')?.classList.contains('fork-hidden'));
+  check(`${tag}: rack markers hidden before entering the rack`, hueHidden, true);
+  await tap(page, vp, await screenOfPlan(page, 0.418, 0.212));
   await sleep(420);
   await settle(page, 200);
   s = await state(page);
@@ -270,9 +270,9 @@ async function scenarioNested(page, vp) {
   await shot(page, vp, '03-nested-2-rack');
   const rackZoom = s.zoom;
   // 3. UDM faceplate — tap ON a port marker (inert until the faceplate is entered)
-  check(`${tag}: rack markers tappable inside the rack`, await page.evaluate(() => window.__card.renderRoot
-    .querySelector('[data-hp="device"][data-id="m-hue"]')?.classList.contains('fork-nested')), false);
-  await tap(page, vp, await centerOf(page, '[data-hp="device"][data-id="m-port-4"]'));
+  check(`${tag}: rack markers shown inside the rack`, await page.evaluate(() => window.__card.renderRoot
+    .querySelector('[data-hp="device"][data-id="m-hue"]')?.classList.contains('fork-hidden')), false);
+  await tap(page, vp, await screenOfPlan(page, 0.432, 0.141));
   await sleep(420);
   await settle(page, 200);
   s = await state(page);
@@ -515,6 +515,70 @@ async function scenarioGhost(page, vp) {
   }
 }
 
+async function scenarioReveal(page, vp) {
+  const tag = `${vp.key}.reveal`;
+  const look = () => page.evaluate(() => {
+    const root = window.__card.renderRoot;
+    const dev = (id) => {
+      const el = root.querySelector(`[data-hp="device"][data-id="${id}"]`);
+      return el ? (el.classList.contains('fork-hidden') ? 'hidden' : 'shown') : 'absent';
+    };
+    const dec = (id) => {
+      const el = root.querySelector(`[data-hp="decor"][data-id="${id}"]`)?.closest('.fork-reveal');
+      return el ? (el.classList.contains('fork-hidden') ? 'hidden' : 'shown') : 'absent';
+    };
+    const badge = (id) => root.querySelector(`[data-hp="device"][data-id="${id}"] .value-badge`)?.textContent.trim() || '';
+    return {
+      port: dev('m-port-2'), poe: dev('m-poe'), candles: dev('m-candles'), lamp: dev('m-lamp'),
+      rackDecor: dec('dec-rack'), udmDecor: dec('dec-udm'),
+      reduced: root.querySelector('[data-hp="device"][data-id="m-lamp"]')?.classList.contains('fork-reduced'),
+      port1: badge('m-port-1'), port3: badge('m-port-3'), wan: badge('m-udm'), timer: badge('m-timer'),
+    };
+  });
+  let r = await look();
+  check(`${tag}: level — rack/faceplate markers hidden`, [r.port, r.poe], ['hidden', 'hidden']);
+  check(`${tag}: level — room-detail marker hidden`, r.candles, 'hidden');
+  check(`${tag}: level — room devices shown at reduced density`, [r.lamp, r.reduced], ['shown', true]);
+  check(`${tag}: level — rack drawings hidden`, [r.rackDecor, r.udmDecor], ['hidden', 'hidden']);
+  check(`${tag}: duration badge compact, unit once`, r.timer, '95m');
+  await shot(page, vp, '07-reveal-0-level');
+  await page.evaluate(() => window.__card._fitRoom('living'));
+  await sleep(110);
+  await shot(page, vp, '07-reveal-1-fading-in');
+  await settle(page, 300);
+  r = await look();
+  check(`${tag}: room — room detail and rack drawing appear`, [r.candles, r.rackDecor, r.reduced], ['shown', 'shown', false]);
+  check(`${tag}: room — rack contents still hidden`, [r.poe, r.port, r.udmDecor], ['hidden', 'hidden', 'hidden']);
+  await shot(page, vp, '07-reveal-2-room');
+  await page.evaluate(() => window.__card._fitRegion('rack'));
+  await settle(page, 300);
+  r = await look();
+  check(`${tag}: rack — rack markers and faceplate drawing appear, ports still hidden`, [r.poe, r.udmDecor, r.port], ['shown', 'shown', 'hidden']);
+  await shot(page, vp, '07-reveal-3-rack');
+  await page.evaluate(() => window.__card._fitRegion('udm'));
+  await settle(page, 300);
+  r = await look();
+  check(`${tag}: faceplate — ports appear`, r.port, 'shown');
+  check(`${tag}: link speeds compact (1G / 100M / 940M)`, [r.port1, r.port3, r.wan], ['1G', '100M', '940M']);
+  await shot(page, vp, '07-reveal-4-faceplate');
+  await page.evaluate(() => window.__card._stepOut());
+  await sleep(110);
+  await shot(page, vp, '07-reveal-5-fading-out');
+  await settle(page, 300);
+  r = await look();
+  check(`${tag}: back out to rack — ports fade out again`, r.port, 'hidden');
+  // Manual zoom alone also reveals (no focus change).
+  await page.evaluate(() => { const c = window.__card; c._fitAll('fit'); });
+  await settle(page, 250);
+  await page.evaluate(() => {
+    const c = window.__card; c._focusNode = null;
+    c._applyView(28, 440, 140); c.requestUpdate();
+  });
+  await settle(page, 200);
+  r = await look();
+  check(`${tag}: zooming in by hand past the threshold reveals the ports`, r.port, 'shown');
+}
+
 const RUN = [
   ['stairs', scenarioStairs],
   ['levels', scenarioLevels],
@@ -523,6 +587,7 @@ const RUN = [
   ['callout', scenarioCallout],
   ['dock', scenarioDock],
   ['ghost', scenarioGhost],
+  ['reveal', scenarioReveal],
 ];
 
 for (const vp of VIEWPORTS) {

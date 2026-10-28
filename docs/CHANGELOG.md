@@ -22,6 +22,11 @@
   map that run scripts/scenes; fits keep the plan clear of it. (FORK.md §5)
 - "Not in HA" markers: `presentation: "ghost"` draws a dimmed icon in a dashed
   ring with no text/state; tap does nothing unless an action is set. (FORK.md §6)
+- Progressive disclosure: markers inside a focus region stay hidden until you
+  fly into it, region drawings appear one level earlier, the whole level shows
+  devices at reduced density; per-item `reveal` override. (FORK.md §7)
+- Compact value badges: data rates `1G`/`100M`, durations `95m`/`2h15m`, never
+  a doubled unit. (FORK.md §8)
 - Touch View no longer shows a room's "open HA area" link: it is a page
   change and a hit target that covered stairs at phone zoom. (FORK.md §7)
 

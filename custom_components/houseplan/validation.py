@@ -1524,8 +1524,18 @@ _FURN_SYMBOL = vol.All(str, vol.Length(min=1, max=MAX_FURN_SYMBOL),
 _FURN_SIZE = vol.All(_finite, vol.Range(min=0.0000001, max=CANVAS_LIMIT))
 _DECOR_ASSET_ID = vol.All(str, vol.Match(r"^[0-9a-f]{64}$"))
 
+# Fork (FORK.md §7): progressive disclosure of a marker / decor item.
+# "room" | "region:<focus region id>" | {"min_zoom": n}; null = automatic.
+_REVEAL = vol.Any(
+    None,
+    "room",
+    vol.All(str, vol.Match(r"^region:.{1,64}$")),
+    vol.Schema({vol.Required("min_zoom"): vol.All(_finite, vol.Range(min=0.01, max=64))}),
+)
+
 _DECOR_COMMON = {
     vol.Required("id"): str,
+    vol.Optional("reveal"): _REVEAL,
     vol.Optional("color"): _COLOR,
     vol.Optional("opacity"): vol.All(_finite, vol.Range(min=0.0, max=1.0)),
     # Physical centimetres are canonical. `width` remains accepted so plans
@@ -2108,6 +2118,7 @@ MARKER_SCHEMA = vol.Schema(
         vol.Optional("hide_signal"): bool,
         # Fork (FORK.md §6): "not in HA" presentation of a marker.
         vol.Optional("presentation"): vol.Any("ghost", None),
+        vol.Optional("reveal"): _REVEAL,
         vol.Optional("room_id"): vol.Any(str, None),
         # Keep in sync with DISPLAY_MODES in src/logic.ts. `ripple` is no longer
         # offered, but remains accepted while old stores migrate to icon_ripple.

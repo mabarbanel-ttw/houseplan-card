@@ -70,3 +70,18 @@ def test_fork_marker_ghost_presentation():
     assert v.CONFIG_SCHEMA({"spaces": [], "markers": [{**marker, "presentation": None}]})["markers"][0]["presentation"] is None
     with pytest.raises(vol.Invalid):
         v.CONFIG_SCHEMA({"spaces": [], "markers": [{**marker, "presentation": "glass"}]})
+
+
+@pytest.mark.parametrize("reveal", ["room", "region:fr_rack", {"min_zoom": 4}, None])
+def test_fork_reveal_on_markers_and_decor(reveal):
+    marker = {"id": "m", "binding": "virtual", "reveal": reveal}
+    decor = {"id": "d", "kind": "rect", "x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1, "reveal": reveal}
+    out = v.CONFIG_SCHEMA({"spaces": [_space(decor=[decor])], "markers": [marker]})
+    assert out["markers"][0]["reveal"] == reveal
+    assert out["spaces"][0]["decor"][0]["reveal"] == reveal
+
+
+@pytest.mark.parametrize("bad", ["house", "region:", {"min_zoom": 0}, {"min_zoom": 100}, 3])
+def test_fork_reveal_rejects_unknown_rules(bad):
+    with pytest.raises(vol.Invalid):
+        v.CONFIG_SCHEMA({"spaces": [], "markers": [{"id": "m", "binding": "virtual", "reveal": bad}]})

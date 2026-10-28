@@ -306,7 +306,7 @@ import { StairViewRuntime, type StairViewHostPort } from './stairs-view';
 import { stairList, stairOutline, type Stair } from './stairs';
 import {
   focusChildren, focusParent, focusPath, focusRegionBounds, focusRegionFromView, focusRegionList,
-  nestedAway,
+  nestedAway, parseReveal, revealShown, type RevealContext,
   inflateToContext, insetCameraTarget, newFocusRegionId, NO_INSETS, regionRoomId, resolveFocusTap,
   sameFocusNode, stairLanding,
   type FocusNode, type FocusRegion, type StageInsets,
@@ -6745,24 +6745,73 @@ export class HouseplanCard extends LitElement {
     return depth;
   }
 
-  /** Per-render memo of the focus path (fork §3). */
-  private _forkPathMemo: { node: FocusNode; cfg: unknown; regions: FocusRegion[]; path: Set<string> } | null = null;
+  /** Fork §7: one reveal context per render frame (focus path, camera). */
+  private _forkRevealMemo: { key: unknown[]; ctx: RevealContext | null } | null = null;
+  private _forkRevealContext(): RevealContext | null {
+    if (this._mode !== 'view') return null;
+    const cfg = this._curSpaceCfg;
+    const view = this._view;
+    const key = [cfg, this._focusNode, view?.w, view?.h, this._zoom];
+    const memo = this._forkRevealMemo;
+    if (memo && memo.key.length === key.length && memo.key.every((value, i) => value === key[i])) return memo.ctx;
+    let ctx: RevealContext | null = null;
+    if (view && view.w > 0 && view.h > 0) {
+      const regions = focusRegionList(cfg?.focus_regions);
+      const space = this._spaceModel();
+      ctx = {
+        regions,
+        path: focusPath(this._focusNode, regions),
+        view: { w: view.w, h: view.h },
+        zoom: this._zoom,
+        normW: NORM_W,
+        roomFraction: (roomId) => {
+          const room = space?.rooms.find((item) => item.id === roomId);
+          const poly = room ? roomPoly(room) : null;
+          if (!poly?.length) return 0;
+          const xs = poly.map((p) => p[0]), ys = poly.map((p) => p[1]);
+          return Math.max((Math.max(...xs) - Math.min(...xs)) / view.w, (Math.max(...ys) - Math.min(...ys)) / view.h);
+        },
+      };
+    }
+    this._forkRevealMemo = { key, ctx };
+    return ctx;
+  }
 
   /**
-   * Fork §3: a marker inside a fly-in target you have not entered yet does not
-   * take the tap (the region does). Opt out with `focus_nested_markers: tappable`.
+   * Fork §3/§7 marker classes: hidden detail of a region/room you have not
+   * entered (faded, untappable), and the reduced density of the whole level.
    */
-  private _forkNestedAway(pos: { x: number; y: number }): boolean {
-    if (this._mode !== 'view' || (this._config as any)?.focus_nested_markers === 'tappable') return false;
-    const cfg = this._curSpaceCfg?.focus_regions;
-    if (!Array.isArray(cfg) || !cfg.length) return false;
-    let memo = this._forkPathMemo;
-    if (!memo || memo.cfg !== cfg || !sameFocusNode(memo.node, this._focusNode)) {
-      const regions = focusRegionList(cfg);
-      memo = { node: this._focusNode, cfg, regions, path: focusPath(this._focusNode, regions) };
-      this._forkPathMemo = memo;
+  private _forkMarkerClass(d: DevItem, pos: { x: number; y: number }): string {
+    if (this._mode !== 'view') return '';
+    const mode = (this._config as any)?.focus_nested_markers;
+    const classes: string[] = [];
+    const ctx = this._forkRevealContext();
+    if (ctx && mode !== 'tappable') {
+      const rule = parseReveal((d.marker as any)?.reveal);
+      const roomId = d.marker?.room_id ?? this._spaceModel()?.rooms.find((r) => this._pointInRoom([pos.x, pos.y], r))?.id ?? null;
+      if (!revealShown([pos.x / NORM_W, pos.y / NORM_W], rule, roomId, 'marker', ctx)) {
+        classes.push(mode === 'inert' ? 'fork-nested' : 'fork-hidden');
+      }
     }
-    return nestedAway([pos.x / NORM_W, pos.y / NORM_W], memo.path, memo.regions);
+    // §7: the whole level shows room devices at reduced density (icon only, smaller).
+    if (!this._focusNode && this._zoom < 1.5 && (this._config as any)?.level_density !== 'full') {
+      classes.push('fork-reduced');
+    }
+    return classes.join(' ');
+  }
+
+  /** Fork §7: decor items inside a region appear one level before its markers. */
+  private _forkRevealDecor(list: readonly DecorShape[], shapes: readonly unknown[]): unknown[] {
+    const ctx = this._forkRevealContext();
+    if (!ctx || (!ctx.regions.length && !list.some((sh) => (sh as any).reveal != null))) return shapes as unknown[];
+    return shapes.map((tpl, index) => {
+      const sh = list[index] as any;
+      if (!sh) return tpl;
+      const cx = sh.kind === 'line' ? (sh.x1 + sh.x2) / 2 : Number(sh.x) + (Number(sh.w) || 0) / 2;
+      const cy = sh.kind === 'line' ? (sh.y1 + sh.y2) / 2 : Number(sh.y) + (Number(sh.h) || 0) / 2;
+      const shown = revealShown([cx, cy], parseReveal(sh.reveal), null, 'decor', ctx);
+      return svg`<g class=${shown ? 'fork-reveal' : 'fork-reveal fork-hidden'}>${tpl}</g>`;
+    });
   }
 
   /** Subtle dashed outlines of the regions one tap away from here. */
@@ -9106,7 +9155,8 @@ export class HouseplanCard extends LitElement {
     const furnitureScreenScale = furniturePlanScreenScale(
       stage?.clientWidth, stage?.clientHeight, planView.w, planView.h,
     );
-    const shapes = this._decorList.filter((sh) => onlyId === undefined || sh.id === onlyId).map((sh) => {
+    const decorShown = this._decorList.filter((sh) => onlyId === undefined || sh.id === onlyId);
+    const shapes = decorShown.map((sh) => {
       const cls = 'dshape' + (editing && this._decorSel === sh.id ? ' dsel' : '');
       const style = this._decorResolvedStyle(sh);
       const strokeWidth = this._decorWidthUnits(sh);
@@ -9250,7 +9300,7 @@ export class HouseplanCard extends LitElement {
               stroke="${st.color}" stroke-opacity="${st.opacity}" stroke-width="${sw}" fill="${st.fill ? st.fillColor : 'none'}" fill-opacity="${st.fill ? st.fillOpacity : 0}"></ellipse>`;
       }
     }
-    return svg`<g class="decorlayer">${shapes}${draft}${this._editorRuntime?._renderFurniturePlacementPreview(furnitureScreenScale) ?? nothing}${this._editorRuntime?._renderDecorImagePlacementPreview() ?? nothing}</g>` as unknown as TemplateResult;
+    return svg`<g class="decorlayer">${this._mode === 'view' ? this._forkRevealDecor(decorShown, shapes) : shapes}${draft}${this._editorRuntime?._renderFurniturePlacementPreview(furnitureScreenScale) ?? nothing}${this._editorRuntime?._renderDecorImagePlacementPreview() ?? nothing}</g>` as unknown as TemplateResult;
   }
 
   // ================= shared editor secondary surface =================
@@ -12541,7 +12591,7 @@ export class HouseplanCard extends LitElement {
       role=${interactive ? 'button' : nothing}
       tabindex=${interactive ? '0' : nothing}
       aria-label=${deviceAriaLabel}
-      class="dev ${this._forkNestedAway(pos) ? 'fork-nested' : ''} ${deviceThemeClass(this._renderPlanHass)} ${presentation.classes.join(' ')} ${this._selId === d.id ? 'sel' : ''} ${d.virtual ? 'virtual' : ''} ${d.hidden ? 'ghost' : ''} ${presentation.haDisabled ? 'ha-disabled' : ''} ${presentation.valueText != null ? 'valonly' : ''} ${floorLight}"
+      class="dev ${this._forkMarkerClass(d, pos)} ${deviceThemeClass(this._renderPlanHass)} ${presentation.classes.join(' ')} ${this._selId === d.id ? 'sel' : ''} ${d.virtual ? 'virtual' : ''} ${d.hidden ? 'ghost' : ''} ${presentation.haDisabled ? 'ha-disabled' : ''} ${presentation.valueText != null ? 'valonly' : ''} ${floorLight}"
       style="${st.join(';')}"
       @click=${(e: MouseEvent) => this._clickDevice(e, d)}
       @keydown=${(e: KeyboardEvent) => this._keyDevice(e, d)}

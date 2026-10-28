@@ -158,6 +158,36 @@ export const forkStyles = css`
     100% { opacity: 0.75; }
   }
 
+  /* §7 progressive disclosure: detail of a region/room you have not entered
+     fades out (and is not tappable); it fades in during the fly-in. */
+  .stage.mode-view .dev,
+  .stage.mode-view .fork-reveal {
+    transition: opacity 240ms ease, visibility 0s linear 0s, scale 240ms ease;
+  }
+  .stage.mode-view .dev.fork-hidden,
+  .stage.mode-view .fork-reveal.fork-hidden {
+    opacity: 0 !important;
+    visibility: hidden;
+    transition: opacity 200ms ease, visibility 0s linear 200ms, scale 240ms ease;
+  }
+  .stage.mode-view .dev.fork-hidden,
+  .stage.mode-view .dev.fork-hidden *,
+  .stage.mode-view .dev.fork-hidden::before,
+  .stage.mode-view .fork-reveal.fork-hidden * {
+    pointer-events: none !important;
+  }
+  /* The whole level shows room devices at reduced density: smaller, icon only. */
+  .stage.mode-view .dev.fork-reduced { scale: 0.72; }
+  .stage.mode-view .dev.fork-reduced .device-sections,
+  .stage.mode-view .dev.fork-reduced .device-battery,
+  .stage.mode-view .dev.fork-reduced .device-maintenance,
+  .stage.mode-view .dev.fork-reduced [class*='lqi'] {
+    display: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .stage.mode-view .dev, .stage.mode-view .fork-reveal { transition: none; }
+  }
+
   /* Markers inside a fly-in target you have not entered: painted, not tappable. */
   .stage.mode-view .dev.fork-nested,
   .stage.mode-view .dev.fork-nested *,

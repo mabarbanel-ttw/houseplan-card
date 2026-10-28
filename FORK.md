@@ -290,3 +290,87 @@ carries the flag).
 both save paths), `src/types.ts`, `src/styles/fork.styles.ts`,
 `src/i18n/*.json` (`fork.ghost`), `custom_components/houseplan/validation.py`,
 `scripts/config-schema.json`, `tests_backend/test_fork_single_pane.py`.
+
+## 7. Progressive disclosure (detail appears as you fly in)
+
+**What.** At whole-level zoom a busy room (the living room carries ~45
+markers plus the rack and faceplate drawings) was an unreadable cluster. Now
+detail belongs to the zoom level it is meant for and fades in during the
+fly-in, out again on back-out (240 ms opacity; reduced motion = instant):
+
+- a **marker inside a focus region** (§3) is hidden — and not tappable, so the
+  tap reaches the region — until that region is on your fly-in path (you are
+  in it or deeper). Ports on the faceplate appear when you enter the
+  faceplate; the rack's own devices when you enter the rack;
+- a **decor item or background image inside a focus region** appears one level
+  earlier, once the region's parent is on the path: the rack drawing shows in
+  the living room, the faceplate drawing in the rack. Level-level regions'
+  drawings are always shown;
+- zooming by hand also reveals: a region that fills ≥ 85 % of the view counts
+  as entered for its markers (≥ 40 % for decor), so pinch/wheel work without
+  tapping;
+- the **whole level** (no room focused, zoom < 1.5) shows room devices at
+  reduced density: 72 % size, icon only (no value badges, battery, LQI,
+  maintenance marks). A focused room shows its devices at full size.
+- per-item override with `reveal` (marker or decor):
+  `"room"` = only once its room is the position (or the room fills ≥ 70 % of
+  the view); `"region:<id>"` = only once that region is on the path (or fills
+  ≥ 85 %); `{"min_zoom": n}` = only from camera zoom `n` (1 = fit all).
+
+**Config keys.**
+
+Persisted, marker and decor item (integration `_REVEAL` schema; absent/`null`
+= automatic rules above):
+
+```json
+{ "id": "candles", "binding": "virtual", "reveal": "room" }
+{ "id": "udm-port-7", "binding": "entity:sensor.udm_port_7_speed", "reveal": "region:fr_faceplate" }
+{ "id": "rack-elevation", "kind": "image", "asset_id": "…", "x": 0.62, "y": 0.12, "w": 0.24, "h": 0.14, "reveal": {"min_zoom": 2} }
+```
+
+Lovelace card YAML:
+
+```yaml
+level_density: reduced          # reduced (default) | full — whole-level marker density
+focus_nested_markers: hide      # hide (default) | inert (painted, untappable) | tappable (upstream)
+```
+
+For the owner's data builder: `fork_slots.json` lists regions as
+`rect_norm: [x0, y0, x1, y1]`; the persisted record is
+`{"id", "x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0, "room_id" | "parent_id"}`
+(e.g. `fr_rack` → `{"id": "fr_rack", "x": 0.62, "y": 0.122941176, "w":
+0.241176471, "h": 0.138823530, "room_id": "m_living"}`, `fr_faceplate` →
+`parent_id: "fr_rack"`). Markers and decor whose position lies inside a region
+need no `reveal` field.
+
+**Files.** `src/fork-focus.ts` (`parseReveal`, `revealShown`,
+`REVEAL_*_FRACTION`), `src/houseplan-card.ts` (`_forkRevealContext`,
+`_forkMarkerClass`, `_forkRevealDecor`, decor layer wraps items in
+`.fork-reveal`), `src/styles/fork.styles.ts`,
+`custom_components/houseplan/validation.py` (`_REVEAL` on markers and every
+decor kind), `scripts/config-schema.json`, `test/fork-focus.test.mjs`,
+`tests_backend/test_fork_single_pane.py`, `demo/fork/*`.
+
+## 8. Compact value badges
+
+**What.** Badges on small markers have room for ~5 characters.
+
+- Data rates (`bit/s`, `kbit/s`, `Mbit/s`, `Gbit/s`, `bps`/`Mbps`/…, and
+  byte rates `B/s`…`GB/s`, `KiB/s`…) are shown in compact SI form from the raw
+  state: `1000 Mbit/s` → `1G`, `100` → `100M`, `10000` → `10G`, `940` → `940M`,
+  `2500` → `2.5G`; byte rates keep a `B` (`13MB`).
+- Durations (`device_class: duration` or unit `ms`/`s`/`min`/`h`/`d`):
+  `95 min` → `95m`, `135 min` → `2h15m`, `3 d` → `3d`, `45 s` → `45s`.
+- No unit is ever doubled: when Home Assistant's formatter already put its own
+  unit text on the value (e.g. a duration formatted `95m` for a `min`
+  sensor), nothing is appended (this was `95m min`).
+
+Applies to value badges and to the value face (`display: value`). Every other
+value keeps HA's formatting and precision. Tooltips/callouts show the same
+compact text.
+
+**Config keys.** None.
+
+**Files.** `src/fork-format.ts` (`compactRate`, `compactDuration`,
+`compactBadgeValue`), `src/device-value-badge.ts`, `src/device-presentation.ts`,
+`src/logic.ts` (`valueWithUnit`), `test/fork-format.test.mjs`.

@@ -124,3 +124,46 @@ test('fork §3 a framed view becomes a child target of the current position', ()
   assert.deepEqual(focusRegionFromView(view, 1000, null, 'r3'), { id: 'r3', x: 0.41, y: 0.105, w: 0.08, h: 0.04 });
   assert.equal(focusRegionFromView({ ...view, w: 0 }, 1000, null, 'r4'), null);
 });
+
+test('fork §7 reveal rules: parse boundary', async () => {
+  const { parseReveal } = await import('../test-build/fork-focus.js');
+  assert.deepEqual(parseReveal('room'), { kind: 'room' });
+  assert.deepEqual(parseReveal('region:fr_rack'), { kind: 'region', id: 'fr_rack' });
+  assert.deepEqual(parseReveal({ min_zoom: 4 }), { kind: 'zoom', min: 4 });
+  for (const bad of ['house', 'region:', { min_zoom: 0 }, { min_zoom: 'x' }, null, 3]) assert.equal(parseReveal(bad), null);
+});
+
+test('fork §7 progressive disclosure: markers per region, decor one level early, zoom by hand', async () => {
+  const { revealShown } = await import('../test-build/fork-focus.js');
+  const ctx = (node, viewW = 1000, zoom = 1) => ({
+    regions: REGIONS, path: focusPath(node, REGIONS), view: { w: viewW, h: viewW * 0.75 }, zoom, normW: 1000,
+    roomFraction: (id) => (id === 'living' ? 450 / viewW : 0),
+  });
+  const port = [0.45, 0.13];
+  const rackItem = [0.405, 0.2];
+  const level = ctx(null);
+  const room = ctx({ kind: 'room', id: 'living' }, 500);
+  const rack = ctx({ kind: 'region', id: 'rack' }, 130);
+  const udm = ctx({ kind: 'region', id: 'udm' }, 100);
+  assert.equal(revealShown(port, null, 'living', 'marker', level), false);
+  assert.equal(revealShown(rackItem, null, 'living', 'marker', room), false);
+  assert.equal(revealShown(rackItem, null, 'living', 'marker', rack), true);
+  assert.equal(revealShown(port, null, 'living', 'marker', rack), false);
+  assert.equal(revealShown(port, null, 'living', 'marker', udm), true);
+  // Decor: the rack drawing appears in the room, the faceplate drawing in the rack.
+  assert.equal(revealShown(rackItem, null, null, 'decor', level), false);
+  assert.equal(revealShown(rackItem, null, null, 'decor', room), true);
+  assert.equal(revealShown(port, null, null, 'decor', room), false);
+  assert.equal(revealShown(port, null, null, 'decor', rack), true);
+  // Explicit rules.
+  assert.equal(revealShown([0.1, 0.5], { kind: 'room' }, 'living', 'marker', level), false);
+  assert.equal(revealShown([0.1, 0.5], { kind: 'room' }, 'living', 'marker', room), true);
+  assert.equal(revealShown([0.1, 0.5], { kind: 'region', id: 'rack' }, 'living', 'marker', room), false);
+  assert.equal(revealShown([0.1, 0.5], { kind: 'region', id: 'rack' }, 'living', 'marker', rack), true);
+  assert.equal(revealShown([0.1, 0.5], { kind: 'zoom', min: 4 }, null, 'marker', ctx(null, 1000, 3.9)), false);
+  assert.equal(revealShown([0.1, 0.5], { kind: 'zoom', min: 4 }, null, 'marker', ctx(null, 1000, 4)), true);
+  // Zooming by hand until the faceplate fills the view reveals its ports.
+  assert.equal(revealShown(port, null, 'living', 'marker', ctx(null, 85)), true);
+  // Outside every region: always shown.
+  assert.equal(revealShown([0.1, 0.5], null, 'living', 'marker', level), true);
+});

@@ -345,3 +345,102 @@ export function insetCameraTarget(input: InsetCameraInput): { zoom: number; view
     },
   };
 }
+
+// ---------------------------------------------------------------- §7 progressive disclosure
+
+/** Explicit reveal rule of a marker or decor item (`reveal` field). */
+export type RevealRule =
+  | { kind: 'room' }
+  | { kind: 'region'; id: string }
+  | { kind: 'zoom'; min: number };
+
+/** Read boundary for `reveal`: "room" | "region:<id>" | {"min_zoom": n}. */
+export function parseReveal(value: unknown): RevealRule | null {
+  if (value === 'room') return { kind: 'room' };
+  if (typeof value === 'string' && value.startsWith('region:') && value.length > 7 && value.length <= 71) {
+    return { kind: 'region', id: value.slice(7) };
+  }
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const min = (value as { min_zoom?: unknown }).min_zoom;
+    if (typeof min === 'number' && Number.isFinite(min) && min > 0 && min <= 64) return { kind: 'zoom', min };
+  }
+  return null;
+}
+
+/** A region counts as "zoomed into" by hand once it spans this much of the
+ *  view (high on purpose: a region one tap away must be entered by the tap,
+ *  not revealed early, or its markers would cover it). */
+export const REVEAL_SCREEN_FRACTION = 0.85;
+/** A room counts as "zoomed into" once it spans this much of the view. */
+export const REVEAL_ROOM_FRACTION = 0.7;
+
+export interface RevealContext {
+  regions: readonly FocusRegion[];
+  path: ReadonlySet<string>;
+  /** Current camera rectangle in render units and zoom. */
+  view: { w: number; h: number };
+  zoom: number;
+  normW: number;
+  /** Screen fraction (0..1, larger axis) a room occupies, or 0 when unknown. */
+  roomFraction(roomId: string): number;
+}
+
+const regionFraction = (region: FocusRegion, ctx: RevealContext): number =>
+  Math.max((region.w * ctx.normW) / ctx.view.w, (region.h * ctx.normW) / ctx.view.h);
+
+const innermostOffPath = (
+  point: readonly [number, number], ctx: RevealContext,
+): FocusRegion | null => {
+  let best: FocusRegion | null = null;
+  for (const region of ctx.regions) {
+    if (ctx.path.has(`region:${region.id}`) || !regionContains(region, point)) continue;
+    if (!best || region.w * region.h < best.w * best.h) best = region;
+  }
+  return best;
+};
+
+/**
+ * Is a marker / decor item visible at the current fly-in position and zoom?
+ *
+ * - explicit `room`: inside its room (room on the path) or the room fills
+ *   ≥ 70 % of the view;
+ * - explicit `region:<id>`: that region on the path, or it fills ≥ 85 %;
+ * - explicit `{min_zoom}`: camera zoom ≥ min;
+ * - otherwise a MARKER inside a region you have not entered is hidden until
+ *   you enter it (or zoom until it fills ≥ 85 %), and a DECOR item inside a
+ *   region shows one level earlier — once the region's parent (its room or
+ *   parent region) is on the path — so you see the rack drawing in the room
+ *   and its ports inside the rack.
+ */
+export function revealShown(
+  point: readonly [number, number],
+  rule: RevealRule | null,
+  roomId: string | null,
+  kind: 'marker' | 'decor',
+  ctx: RevealContext,
+): boolean {
+  if (rule?.kind === 'zoom') return ctx.zoom >= rule.min;
+  if (rule?.kind === 'room') {
+    if (!roomId) return true;
+    return ctx.path.has(`room:${roomId}`) || ctx.roomFraction(roomId) >= REVEAL_ROOM_FRACTION;
+  }
+  if (rule?.kind === 'region') {
+    const region = ctx.regions.find((item) => item.id === rule.id);
+    if (!region) return true;
+    return ctx.path.has(`region:${region.id}`) || regionFraction(region, ctx) >= REVEAL_SCREEN_FRACTION;
+  }
+  if (!Number.isFinite(point[0]) || !Number.isFinite(point[1])) return true;
+  if (kind === 'marker') {
+    // Every enclosing region must be entered (or zoomed into).
+    for (const region of ctx.regions) {
+      if (ctx.path.has(`region:${region.id}`) || !regionContains(region, point)) continue;
+      if (regionFraction(region, ctx) < REVEAL_SCREEN_FRACTION) return false;
+    }
+    return true;
+  }
+  const region = innermostOffPath(point, ctx);
+  if (!region) return true;
+  const parent = focusParent({ kind: 'region', id: region.id }, ctx.regions);
+  if (!parent || ctx.path.has(`${parent.kind}:${parent.id}`)) return true;
+  return regionFraction(region, ctx) >= 0.4;
+}
