@@ -267,6 +267,9 @@ export interface Marker {
   hide_battery?: boolean;
   /** Hide only the system LQI line; explicit values, tooltip and routes remain. */
   hide_signal?: boolean;
+  /** Fork (FORK.md §6): `ghost` = "not in HA" — dimmed icon, dashed outline,
+   *  no text/state, tap does nothing unless `tap_action` is set. */
+  presentation?: 'ghost' | null;
 }
 
 /** One saved answer to "this exact map of this exact source lives here" (#162). */

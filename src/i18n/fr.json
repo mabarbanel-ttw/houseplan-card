@@ -1348,5 +1348,6 @@
   "fork.focus_remove": "Supprimer la cible de zoom",
   "fork.callout_more": "Plus",
   "fork.callout_toggle": "Basculer",
-  "tap.callout": "Bulle"
+  "tap.callout": "Bulle",
+  "fork.ghost": "Hors HA"
 }

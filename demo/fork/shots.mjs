@@ -472,6 +472,49 @@ async function scenarioDock(page, vp) {
   check(`${tag}: dock tap does not move the camera or fly`, (await state(page)).focus, null);
 }
 
+async function scenarioGhost(page, vp) {
+  const tag = `${vp.key}.ghost`;
+  await page.evaluate(() => window.__card._fitRegion('rack'));
+  await settle(page, 200);
+  const info = await page.evaluate(() => {
+    const root = window.__card.renderRoot;
+    const el = root.querySelector('[data-hp="device"][data-id="m-hue"]');
+    const real = root.querySelector('[data-hp="device"][data-id="m-poe"]');
+    return {
+      ghost: el?.classList.contains('presentation-ghost'),
+      text: el?.querySelector('.device-sections, .valtext')?.offsetParent ? 'visible' : '',
+      dashed: el ? getComputedStyle(el.querySelector('.device-shell-frame')).borderTopStyle : null,
+      dim: el ? Number(getComputedStyle(el.querySelector('.device-shell')).opacity) : null,
+      realGhost: real?.classList.contains('presentation-ghost'),
+    };
+  });
+  check(`${tag}: virtual marker with presentation ghost is a ghost`, info.ghost, true);
+  check(`${tag}: ghost has a dashed outline`, info.dashed, 'dashed');
+  check(`${tag}: ghost icon is dimmed`, info.dim < 0.7, true);
+  check(`${tag}: ghost paints no text`, info.text, '');
+  check(`${tag}: real HA marker is not a ghost`, info.realGhost, false);
+  await shot(page, vp, '06-ghost-rack');
+  const before = await page.evaluate(() => ({ n: window.__serviceCalls.length }));
+  await tap(page, vp, await centerOf(page, '[data-hp="device"][data-id="m-hue"]'));
+  await sleep(450);
+  await settle(page, 120);
+  const after = await page.evaluate(() => ({
+    n: window.__serviceCalls.length, card: !!window.__card._infoCard,
+    callout: !!window.__card.renderRoot.querySelector('[data-hp="fork-callout"]'),
+    focus: window.__card._focusNode,
+  }));
+  check(`${tag}: ghost tap does nothing (no card, no call, no fly)`,
+    [after.n === before.n, after.card, after.callout, after.focus?.id], [true, false, false, 'rack']);
+  if (vp.key === 'desktop') {
+    await page.mouse.move(0, 0);
+    const p = await centerOf(page, '[data-hp="device"][data-id="m-hue"]');
+    await page.mouse.move(p.x, p.y);
+    await sleep(250);
+    const tip = await page.evaluate(() => !window.__card.renderRoot.querySelector('.tip')?.hidden);
+    check(`${tag}: ghost shows no hover text`, tip, false);
+  }
+}
+
 const RUN = [
   ['stairs', scenarioStairs],
   ['levels', scenarioLevels],
@@ -479,6 +522,7 @@ const RUN = [
   ['authoring', scenarioAuthoring],
   ['callout', scenarioCallout],
   ['dock', scenarioDock],
+  ['ghost', scenarioGhost],
 ];
 
 for (const vp of VIEWPORTS) {

@@ -646,6 +646,12 @@ export function renderMarkerDialog(this: HouseplanEditorRuntime): TemplateResult
           checked: d.hideBattery,
           onChange: (hidden) => (this.host._markerDialog = { ...d, hideBattery: hidden }),
         })}
+        ${d.binding === 'virtual' || d.ghost ? toggleRow({
+          id: 'marker-ghost', compact: true, icon: 'mdi:ghost-outline',
+          title: t('fork.ghost'),
+          checked: !!d.ghost,
+          onChange: (ghost) => (this.host._markerDialog = { ...d, ghost }),
+        }) : nothing}
         ${toggleRow({
           id: 'marker-hide-signal', compact: true, icon: 'mdi:signal-off',
           title: st('marker.hide_signal'), help: shelp('marker.hide_signal_help'),

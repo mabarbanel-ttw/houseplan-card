@@ -5801,6 +5801,8 @@ export class HouseplanCard extends LitElement {
   }
 
   private _showDeviceTip(ev: PointerEvent, d: DevItem): void {
+    // Fork §6: a ghost marker carries no text, not even a hover tooltip, in View.
+    if (this._mode === 'view' && d.marker?.presentation === 'ghost') return;
     if (this._liveRt) this._liveRt.devicePointerTip(ev, d);
     else this._viewRuntimes.withLive(runtime => runtime.devicePointerTip(ev, d));
   }
@@ -5856,7 +5858,10 @@ export class HouseplanCard extends LitElement {
       this._showToast(this._t('toast.tap_target_changed'));
       return null;
     };
-    const action = projectedTapAction(
+    // Fork §6: a ghost ("not in HA") marker does nothing unless an action is set.
+    const ghostIdle = actionDevice.marker?.presentation === 'ghost'
+      && (actionDevice.marker?.tap_action == null || actionDevice.marker?.tap_action === '');
+    const action = ghostIdle ? 'none' : projectedTapAction(
       actionDevice.tapAction, actionDevice.primary?.split('.')[0],
     );
     // An explicit no-op still owns the click: propagation was stopped and the

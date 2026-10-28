@@ -189,6 +189,32 @@ export const forkStyles = css`
   }
   .fork-round ha-icon { --mdc-icon-size: 22px; line-height: 1; }
 
+  /* ---- §6 "not in HA": dimmed icon in a dashed ring, no text, no state */
+  .dev.presentation-ghost .device-shell {
+    opacity: 0.62;
+    filter: grayscale(1);
+  }
+  .dev.presentation-ghost .device-shell-frame {
+    border-style: dashed;
+    border-width: max(1.5px, var(--device-shell-border-width, 1px));
+    border-color: var(--secondary-text-color, #8a929c);
+    box-shadow: none;
+  }
+  .dev.presentation-ghost .device-core {
+    background: transparent;
+    color: var(--secondary-text-color, #8a929c);
+  }
+  .dev.presentation-ghost .device-sections,
+  .dev.presentation-ghost .valtext,
+  .dev.presentation-ghost .device-battery,
+  .dev.presentation-ghost .device-maintenance,
+  .dev.presentation-ghost .device-pulse,
+  .dev.presentation-ghost .activity-dot,
+  .dev.presentation-ghost .newdot,
+  .dev.presentation-ghost [class*='lqi'] {
+    display: none !important;
+  }
+
   /* ---- §5 scene dock: round icon buttons floating in a corner */
   .fork-dock {
     position: absolute;

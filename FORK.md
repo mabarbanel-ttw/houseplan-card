@@ -263,3 +263,30 @@ scene_dock_corner: bottom-left  # bottom-left (default) | bottom-right | top-lef
 normalization in `forkCardOptions`), `src/houseplan-card.ts` (`_runDockItem`,
 dock band in `_chromeInsets`), `src/styles/fork.styles.ts`, `src/types.ts`,
 `test/fork-chrome.test.mjs`.
+
+## 6. "Not in HA" presentation
+
+**What.** Marker option `presentation: "ghost"` for virtual markers (things
+that exist in the house but not in Home Assistant — a Hue bridge, candles, a
+filament dryer). The marker is drawn as a dimmed, greyscale icon in a dashed
+ring; it paints no text, no value badge, no battery/LQI/maintenance marks and
+no live state, and shows no hover tooltip in View. A tap does nothing unless a
+tap action is explicitly set on the marker (then that action runs as usual);
+the 600 ms hold still opens the device card. The device editor shows a
+**Not in HA** switch for virtual markers (and for any marker that already
+carries the flag).
+
+**Config keys.** Marker field (persisted; integration schema
+`vol.Any("ghost", None)`; absent/`null` = ordinary marker):
+
+```json
+{ "id": "hue-bridge", "binding": "virtual", "name": "Hue bridge", "icon": "mdi:hub-outline", "presentation": "ghost" }
+```
+
+**Files.** `src/device-presentation.ts` (ghost → neutral static icon,
+`presentation-ghost` class, no badges), `src/houseplan-card.ts`
+(`_clickDevice` ghost default = do nothing, `_showDeviceTip`),
+`src/editors/marker-dialog.ts`, `src/houseplan-editor-runtime.ts` (draft +
+both save paths), `src/types.ts`, `src/styles/fork.styles.ts`,
+`src/i18n/*.json` (`fork.ghost`), `custom_components/houseplan/validation.py`,
+`scripts/config-schema.json`, `tests_backend/test_fork_single_pane.py`.

@@ -160,6 +160,11 @@
       "required": true,
       "type": "str"
     },
+    "config.markers[].presentation": {
+      "const": "ghost",
+      "nullable": true,
+      "required": false
+    },
     "config.markers[].radar": {
       "allowExtra": true,
       "nullable": true,

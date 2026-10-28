@@ -1348,5 +1348,6 @@
   "fork.focus_remove": "Zoomziel entfernen",
   "fork.callout_more": "Mehr",
   "fork.callout_toggle": "Umschalten",
-  "tap.callout": "Kurzinfo"
+  "tap.callout": "Kurzinfo",
+  "fork.ghost": "Nicht in HA"
 }

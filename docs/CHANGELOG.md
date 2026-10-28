@@ -20,6 +20,8 @@
   HA more-info. (FORK.md §4)
 - Scene dock: `scene_dock` card option paints round icon buttons over the
   map that run scripts/scenes; fits keep the plan clear of it. (FORK.md §5)
+- "Not in HA" markers: `presentation: "ghost"` draws a dimmed icon in a dashed
+  ring with no text/state; tap does nothing unless an action is set. (FORK.md §6)
 - Touch View no longer shows a room's "open HA area" link: it is a page
   change and a hit target that covered stairs at phone zoom. (FORK.md §7)
 

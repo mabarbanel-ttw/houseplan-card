@@ -62,3 +62,11 @@ def test_fork_marker_callout_action():
     assert validated["markers"][0]["tap_action"] == "callout"
     with pytest.raises(vol.Invalid):
         v.CONFIG_SCHEMA({"spaces": [], "markers": [{**marker, "tap_action": "popover"}]})
+
+
+def test_fork_marker_ghost_presentation():
+    marker = {"id": "m", "binding": "virtual", "presentation": "ghost"}
+    assert v.CONFIG_SCHEMA({"spaces": [], "markers": [marker]})["markers"][0]["presentation"] == "ghost"
+    assert v.CONFIG_SCHEMA({"spaces": [], "markers": [{**marker, "presentation": None}]})["markers"][0]["presentation"] is None
+    with pytest.raises(vol.Invalid):
+        v.CONFIG_SCHEMA({"spaces": [], "markers": [{**marker, "presentation": "glass"}]})

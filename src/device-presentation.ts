@@ -745,7 +745,9 @@ export function resolveDevicePresentation(
   d: DevItem,
   options: ResolvePresentationOptions,
 ): ResolvedDevicePresentation {
-  const display = normalizeDeviceDisplay(d.marker?.display);
+  // Fork §6: a ghost ("not in HA") marker is a neutral static icon.
+  const ghost = d.marker?.presentation === 'ghost';
+  const display = ghost ? 'static_icon' : normalizeDeviceDisplay(d.marker?.display);
   // Two independent questions, and conflating them is the trap this mode was
   // built to avoid (#588). `neutralFace` answers "does anything colour the
   // marker"; `sourceless` answers "can we skip resolving sources at all", and
@@ -970,5 +972,14 @@ export function resolveDevicePresentation(
     vacuumLive: policy.vacuumLive,
     explanation: { reason, notices },
   };
+  if (ghost) {
+    const quiet: ResolvedDevicePresentation = {
+      ...presentation,
+      valueText: null, valueFullText: null, valueBadge: null, battery: null,
+      tempText: null, humText: null, lqiText: null, lqiTipText: null,
+      maintenance: false, issues: [], lightColor: null,
+    };
+    return { ...quiet, classes: [...presentationClasses(quiet).filter((c) => c !== 'on' && c !== 'open'), 'presentation-ghost'] };
+  }
   return { ...presentation, classes: presentationClasses(presentation) };
 }

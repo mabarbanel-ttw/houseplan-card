@@ -1348,5 +1348,6 @@
   "fork.focus_remove": "Удалить точку приближения",
   "fork.callout_more": "Подробнее",
   "fork.callout_toggle": "Переключить",
-  "tap.callout": "Выноска"
+  "tap.callout": "Выноска",
+  "fork.ghost": "Не в HA"
 }

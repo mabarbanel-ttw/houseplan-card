@@ -1348,5 +1348,6 @@
   "fork.focus_remove": "Remove zoom target",
   "fork.callout_more": "More",
   "fork.callout_toggle": "Toggle",
-  "tap.callout": "Callout"
+  "tap.callout": "Callout",
+  "fork.ghost": "Not in HA"
 }

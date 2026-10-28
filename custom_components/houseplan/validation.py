@@ -2106,6 +2106,8 @@ MARKER_SCHEMA = vol.Schema(
         vol.Optional("hide_battery"): bool,
         # Local system LQI line only; diagnostics/actions are not persisted here.
         vol.Optional("hide_signal"): bool,
+        # Fork (FORK.md §6): "not in HA" presentation of a marker.
+        vol.Optional("presentation"): vol.Any("ghost", None),
         vol.Optional("room_id"): vol.Any(str, None),
         # Keep in sync with DISPLAY_MODES in src/logic.ts. `ripple` is no longer
         # offered, but remains accepted while old stores migrate to icon_ripple.
