@@ -140,6 +140,20 @@
       "required": false,
       "type": "bool"
     },
+    "config.markers[].hold_action": {
+      "required": false,
+      "variants": [
+        {
+          "const": "callout"
+        },
+        {
+          "const": "card"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "config.markers[].icon": {
       "maxLength": 500,
       "nullable": true,

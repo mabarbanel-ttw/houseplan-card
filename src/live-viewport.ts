@@ -165,6 +165,8 @@ const setLayerProjection = (
       style.removeProperty('transform-origin');
       style.removeProperty('will-change');
     }
+    // matt.3: the projection scale exposed to fixed-pixel content (see below).
+    if (style.getPropertyValue?.('--hp-live-k')) style.removeProperty('--hp-live-k');
     return;
   }
   // A transformed SVG keeps its old viewport box. Without exposing the scene
@@ -187,6 +189,13 @@ const setLayerProjection = (
   }
   if (style.willChange !== 'transform') style.willChange = 'transform';
   if (style.transform !== text) style.transform = text;
+  // matt.3 (FORK.md §15): content with a fixed PIXEL size inside a projected
+  // HTML layer (the fork's 44 px marker floor and name labels) divides by
+  // this scale, so a fly-in does not balloon it until the next Lit frame.
+  if (!expose) {
+    const k = String(projection.scaleX);
+    if (style.getPropertyValue?.('--hp-live-k') !== k) style.setProperty?.('--hp-live-k', k);
+  }
 };
 
 /** Атрибут пишется только когда строка действительно другая (#531). */

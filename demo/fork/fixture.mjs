@@ -73,7 +73,7 @@ export const FORK_CONFIG = {
     ...[1, 2, 3, 4, 5, 6].map((n) => ({
       id: `m-port-${n}`, binding: `entity:sensor.udm_port_${n}_speed`, name: `Port ${n}`,
       icon: 'mdi:ethernet', space: 'main', room_id: 'living', size: 0.16,
-      tap_action: 'callout',
+      tap_action: 'callout', reveal: 'region:udm', // as on the live house (matt.3)
       // matt.2 §11: UniFi reports 10 for "no link" — that is a DOWN port.
       state_source: { entity_id: `sensor.udm_port_${n}_speed`, active_states: ['100', '1000', '2500', '10000'] },
       inactive_presentation: 'ghost', hide_badge_when_inactive: true,
@@ -110,6 +110,16 @@ export const FORK_CONFIG = {
       space: 'main', room_id: 'kitchen', badge_hide_when: ['0', 'unknown', 'unavailable'],
       value_badge: { enabled: true, position: 'bottom',
         source: { kind: 'entity_state', entity_id: 'sensor.oven_display_temp' } } },
+    // matt.3 §15/§16: a landscape bedroom (turns on portrait screens) with a
+    // heater whose tap toggles it and whose hold opens the callout rows.
+    { id: 'm-heater', binding: 'entity:switch.bed_heater', name: 'Heater', icon: 'mdi:radiator',
+      space: 'main', room_id: 'bed', tap_action: 'toggle',
+      extra_entities: ['select.heater_fan', 'number.heater_target', 'update.heater_fw'],
+      actions: [{ entity: 'script.heater_boost', icon: 'mdi:weather-sunset-up', name: 'Boost' }] },
+    { id: 'm-bedlamp', binding: 'entity:light.bed_lamp', name: 'Bed lamp', icon: 'mdi:lamp',
+      space: 'main', room_id: 'bed', tap_action: 'toggle' },
+    { id: 'm-bedfan', binding: 'entity:switch.bed_fan', name: 'Fan', icon: 'mdi:fan',
+      space: 'main', room_id: 'bed', tap_action: 'toggle', hold_action: 'callout' },
     // Upper office printers.
     { id: 'm-x1c', binding: 'virtual', name: 'X1C', icon: 'mdi:printer-3d', space: 'upper',
       room_id: 'office', presentation: 'ghost' },
@@ -138,6 +148,9 @@ export const FORK_LAYOUT = {
   'm-x1c': { s: 'upper', x: 0.19, y: 0.21 },
   'm-p1s': { s: 'upper', x: 0.28, y: 0.21 },
   'm-valve': { s: 'lower', x: 0.8, y: 0.22 },
+  'm-heater': { s: 'main', x: 0.12, y: 0.62 },
+  'm-bedlamp': { s: 'main', x: 0.42, y: 0.62 },
+  'm-bedfan': { s: 'main', x: 0.27, y: 0.78 },
   // Synthetic demo devices kept off the stairs.
   d_lock: { s: 'main', x: 0.53, y: 0.53 },
   'm-timer': { s: 'main', x: 0.69, y: 0.5 },
@@ -173,4 +186,11 @@ export const FORK_ENTITIES = [
   ['switch.oven', 'kitchen', 'off', { friendly_name: 'Oven' }],
   ['sensor.oven_display_temp', 'kitchen', '0.0', { friendly_name: 'Oven display', unit_of_measurement: '°F', device_class: 'temperature' }],
   ['script.house_lights_off', null, 'off', { friendly_name: 'House lights off' }],
+  ['switch.bed_heater', 'bedroom', 'off', { friendly_name: 'Heater' }],
+  ['select.heater_fan', 'bedroom', 'Low', { friendly_name: 'Fan speed', options: ['Low', 'Medium', 'High'] }],
+  ['number.heater_target', 'bedroom', '70', { friendly_name: 'Target', min: 50, max: 85, step: 1, unit_of_measurement: '°F' }],
+  ['update.heater_fw', 'bedroom', 'off', { friendly_name: 'Firmware', installed_version: '1.2', latest_version: '1.2' }],
+  ['script.heater_boost', null, 'off', { friendly_name: 'Heater boost' }],
+  ['light.bed_lamp', 'bedroom', 'on', { friendly_name: 'Bed lamp' }],
+  ['switch.bed_fan', 'bedroom', 'off', { friendly_name: 'Fan' }],
 ];

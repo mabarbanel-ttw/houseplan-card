@@ -106,3 +106,16 @@ def test_matt2_marker_keys_round_trip_and_bound():
     ):
         with pytest.raises(vol.Invalid):
             v.CONFIG_SCHEMA({"spaces": [], "markers": [{**marker, **bad}]})
+
+
+@pytest.mark.parametrize("hold", ["callout", "card", None])
+def test_matt3_hold_action_round_trips(hold):
+    marker = {"id": "m", "binding": "entity:switch.heater", "hold_action": hold}
+    out = v.CONFIG_SCHEMA({"spaces": [], "markers": [marker]})["markers"][0]
+    assert out["hold_action"] == hold
+
+
+@pytest.mark.parametrize("bad", ["toggle", "more-info", 1, True])
+def test_matt3_hold_action_rejects_other_values(bad):
+    with pytest.raises(vol.Invalid):
+        v.CONFIG_SCHEMA({"spaces": [], "markers": [{"id": "m", "binding": "virtual", "hold_action": bad}]})

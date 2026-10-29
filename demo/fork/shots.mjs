@@ -94,7 +94,7 @@ async function setup(page, options = CARD_OPTIONS, vp = null) {
 async function settle(page, extra = 120) {
   await page.waitForFunction(() => {
     const c = window.__card;
-    return c && !c._booting && !c._bootSoft && !c._cameraTransition?.active && !c._refitRaf;
+    return c && !c._booting && !c._bootSoft && !c._cameraTransition?.active && !c._refitRaf && !c._forkSpin;
   }, { timeout: 8000 });
   await page.evaluate(() => window.__card.updateComplete);
   await sleep(extra);
@@ -105,6 +105,8 @@ const state = (page) => page.evaluate(() => {
   return {
     space: c._space, zoom: c._zoom, view: c._view ? { ...c._view } : null,
     focus: c._focusNode ? { ...c._focusNode } : null,
+    // matt.3: screen px per plan unit (turn-proof; zoom is per camera frame)
+    ppu: (() => { const m = c.renderRoot.querySelector('.plan-svg')?.getScreenCTM(); return m ? Math.hypot(m.a, m.b) : 0; })(),
   };
 });
 
@@ -286,7 +288,7 @@ async function scenarioNested(page, vp) {
   check(`${tag}: tap on room fits the room`, s.focus, { kind: 'room', id: 'living' });
   check(`${tag}: rack target hinted inside the room`, await hints(page), ['rack']);
   await shot(page, vp, '03-nested-1-room');
-  const roomZoom = s.zoom;
+  const roomZoom = s.zoom, roomPpu = s.ppu;
   // 2. rack — tap ON the Hue bridge marker inside the rack: markers of a
   // target you have not entered are painted but inert, the rack takes it.
   const hueHidden = await page.evaluate(() => window.__card.renderRoot
@@ -297,10 +299,10 @@ async function scenarioNested(page, vp) {
   await settle(page, 200);
   s = await state(page);
   check(`${tag}: tap inside rack flies to rack`, s.focus, { kind: 'region', id: 'rack' });
-  check(`${tag}: rack is a deeper zoom level`, s.zoom > roomZoom * 1.5, true);
+  check(`${tag}: rack is a deeper zoom level`, s.ppu > roomPpu * 1.5, true);
   check(`${tag}: faceplate target hinted inside the rack`, await hints(page), ['udm']);
   await shot(page, vp, '03-nested-2-rack');
-  const rackZoom = s.zoom;
+  const rackZoom = s.zoom, rackPpu = s.ppu;
   // 3. UDM faceplate — tap ON a port marker (inert until the faceplate is entered)
   check(`${tag}: rack markers shown inside the rack`, await page.evaluate(() => window.__card.renderRoot
     .querySelector('[data-hp="device"][data-id="m-hue"]')?.classList.contains('fork-hidden')), false);
@@ -309,7 +311,7 @@ async function scenarioNested(page, vp) {
   await settle(page, 200);
   s = await state(page);
   check(`${tag}: tap inside faceplate flies to faceplate`, s.focus, { kind: 'region', id: 'udm' });
-  check(`${tag}: faceplate is a deeper zoom level`, s.zoom > rackZoom * 1.1, true);
+  check(`${tag}: faceplate is a deeper zoom level`, s.ppu > rackPpu * 1.1, true);
   await shot(page, vp, '03-nested-3-faceplate');
   // 4. a marker inside the zoomed faceplate keeps its own tap (never a fly-in)
   const before = await state(page);
@@ -340,14 +342,23 @@ async function scenarioNested(page, vp) {
   await stepOut({ kind: 'room', id: 'living' }, 'room');
   await shot(page, vp, '03-nested-6-back-room');
   const level = await stepOut(null, 'level');
-  check(`${tag}: step out reaches the whole level`, level.zoom < roomZoom, true);
+  check(`${tag}: step out reaches the whole level`, level.ppu < roomPpu, true);
   await shot(page, vp, '03-nested-7-back-level');
   // 6. from the faceplate, double-tap = Fit all (whole level) at once
   await page.evaluate(() => window.__card._fitRegion('udm'));
   await settle(page, 200);
-  // An empty plan spot just below the step-out control (never a marker or the sheet).
-  const st = await centerOf(page, '.stage');
-  const p = { x: st.x, y: st.y - st.h / 2 + 90 };
+  // An empty plan spot (never a marker, chrome or the sheet): the first grid
+  // point, from the top, whose topmost element is plain plan.
+  const p = await page.evaluate(() => {
+    const r = window.__card.renderRoot, st = r.querySelector('.stage').getBoundingClientRect();
+    for (let y = st.top + 90; y < st.bottom - 120; y += 12) {
+      for (let x = st.left + 70; x < st.right - 70; x += 12) {
+        const el = r.elementFromPoint(x, y);
+        if (el && !el.closest('[data-hp="device"], [data-scene-surface], .fork-label, [data-hp="stair"]')) return { x, y };
+      }
+    }
+    return { x: st.left + st.width / 2, y: st.top + 90 };
+  });
   await tap(page, vp, p); await sleep(120); await tap(page, vp, p);
   await settle(page, 300);
   s = await state(page);
@@ -656,7 +667,7 @@ async function scenarioPanel(page, vp) {
   await settle(page, 300);
   await page.evaluate(() => window.__card._fitRegion('rack'));
   await settle(page, 350);
-  const rackZoom = (await state(page)).zoom;
+  const { zoom: rackZoom, ppu: rackPpu } = await state(page);
   let m = await markers('rack');
   const rackTargets = m.filter((x) => x.inside && !x.hidden && !x.ghost);
   if (process.env.FORK_DEBUG) console.log(tag, rackZoom, JSON.stringify(rackTargets));
@@ -669,8 +680,8 @@ async function scenarioPanel(page, vp) {
   await shot(page, vp, '08-panel-1-rack');
   await page.evaluate(() => window.__card._fitRegion('udm'));
   await settle(page, 350);
-  const udmZoom = (await state(page)).zoom;
-  check(`${tag}: faceplate lands visibly deeper than the rack (≥ 1.35×)`, udmZoom >= rackZoom * 1.349, true);
+  const udmPpu = (await state(page)).ppu;
+  check(`${tag}: faceplate lands visibly deeper than the rack (≥ 1.35× on screen)`, udmPpu >= rackPpu * 1.349, true);
   m = await markers('udm');
   const ports = m.filter((x) => x.inside && !x.hidden && !x.ghost);
   check(`${tag}: faceplate ports are ≥ 44 px`, ports.length >= 6 && ports.every((x) => x.w >= 43.5), true);
@@ -861,6 +872,219 @@ async function scenarioPhoneRoom(page, vp) {
   await shot(page, vp, '10-room-3-back');
 }
 
+
+// ---------------------------------------------------------------- matt.3
+
+/** Real touch (CDP) or mouse input: press, optionally hold, move, release. */
+async function press(page, vp, from, { hold = 0, to = null, steps = 8 } = {}) {
+  if (vp.touch) {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: from.x, y: from.y, id: 1 }] });
+    if (hold) await sleep(hold);
+    if (to) for (let i = 1; i <= steps; i += 1) {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{
+        x: from.x + ((to.x - from.x) * i) / steps, y: from.y + ((to.y - from.y) * i) / steps, id: 1 }] });
+      await sleep(16);
+    }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await cdp.detach();
+    return;
+  }
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  if (hold) await sleep(hold);
+  if (to) await page.mouse.move(to.x, to.y, { steps });
+  await page.mouse.up();
+}
+
+/** Two-finger pinch about `center` (touch) or wheel zoom (mouse). */
+async function pinch(page, vp, center, from = 60, to = 120) {
+  if (!vp.touch) {
+    await page.mouse.move(center.x, center.y);
+    await page.mouse.wheel(0, -240);
+    return;
+  }
+  const cdp = await page.context().newCDPSession(page);
+  const pts = (d) => [{ x: center.x - d / 2, y: center.y, id: 1 }, { x: center.x + d / 2, y: center.y, id: 2 }];
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pts(from) });
+  for (let i = 1; i <= 10; i += 1) {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pts(from + ((to - from) * i) / 10) });
+    await sleep(16);
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await cdp.detach();
+}
+
+const calloutInfo = (page) => page.evaluate(() => {
+  const el = window.__card.renderRoot.querySelector('[data-hp="fork-callout"]');
+  if (!el) return null;
+  const head = el.querySelector('.fork-callout-head').getBoundingClientRect();
+  const b = el.getBoundingClientRect();
+  return {
+    id: el.dataset.id,
+    rows: [...el.querySelectorAll('[data-hp="fork-callout-row"]')].map((row) => ({
+      entity: row.dataset.entity,
+      select: row.querySelector('[data-hp="fork-callout-select"]')?.value ?? null,
+      stepper: !!row.querySelector('[data-hp="fork-callout-stepper"]'),
+      state: row.querySelector('.fork-callout-row-state')?.textContent.trim() ?? null,
+    })),
+    actions: el.querySelectorAll('[data-hp="fork-callout-action"]').length,
+    upright: head.width > head.height,
+    box: [b.left, b.top, b.right, b.bottom],
+  };
+});
+
+async function scenarioRotate(page, vp) {
+  const tag = `${vp.key}.rotate`;
+  const portrait = vp.size.height > vp.size.width;
+  await page.evaluate(() => { window.__serviceCalls.length = 0; });
+  await shot(page, vp, '11-rotate-0-level');
+  // Tap the bedroom (0.45 × 0.30, landscape) away from its markers.
+  await tap(page, vp, await screenOfPlan(page, 0.2, 0.7));
+  await page.waitForFunction(() => !!window.__card._cameraTransition?.active, { timeout: 2000 }).catch(() => {});
+  await sleep(120);
+  await shot(page, vp, '11-rotate-1-turning');
+  await settle(page, 300);
+  let s = await state(page);
+  check(`${tag}: tap fits the bedroom`, s.focus, { kind: 'room', id: 'bed' });
+  const rot = await page.evaluate(() => window.__card._forkRot);
+  check(`${tag}: frame turned on portrait, upright on landscape`, rot, portrait ? 90 : 0);
+  // The room fills the free stage: screen box of its corners vs the free area.
+  const fill = await page.evaluate(() => {
+    const c = window.__card;
+    const svg = c.renderRoot.querySelector('.plan-svg');
+    const m = svg.getScreenCTM();
+    const pts = [[0.05, 0.55], [0.5, 0.55], [0.5, 0.85], [0.05, 0.85]].map(([x, y]) => new DOMPoint(x * 1000, y * 1000).matrixTransform(m));
+    const st = c.renderRoot.querySelector('.stage').getBoundingClientRect();
+    const i = c._chromeInsets();
+    const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+    const W = st.width - i.left - i.right, H = st.height - i.top - i.bottom;
+    return { fx: (Math.max(...xs) - Math.min(...xs)) / W, fy: (Math.max(...ys) - Math.min(...ys)) / H,
+      inside: Math.min(...xs) >= st.left + i.left - 2 && Math.max(...xs) <= st.right - i.right + 2
+        && Math.min(...ys) >= st.top + i.top - 2 && Math.max(...ys) <= st.bottom - i.bottom + 2 };
+  });
+  check(`${tag}: room fills the free stage edge to edge (≥ 0.9 on its limiting axis)`, Math.max(fill.fx, fill.fy) >= 0.9 && fill.inside, true);
+  // Markers and labels read upright.
+  const upright = await page.evaluate(() => [...window.__card.renderRoot.querySelectorAll('.dev.fork-focused .fork-label')]
+    .map((el) => { const b = el.getBoundingClientRect(); return b.width > b.height; }));
+  check(`${tag}: focused marker labels read upright`, upright.length >= 3 && upright.every(Boolean), true);
+  await shot(page, vp, '11-rotate-2-bedroom');
+  // Tap = control (toggle), never the callout.
+  const heater = await centerOf(page, '[data-hp="device"][data-id="m-heater"]');
+  await tap(page, vp, heater);
+  await settle(page, 200);
+  let calls = await page.evaluate(() => window.__serviceCalls.map((x) => [x[0], x[1], x[2]?.entity_id]));
+  check(`${tag}: tap on the heater toggles it`, calls.slice(-1).map((x) => x[2]) + calls.slice(-1).map((x) => ['toggle', 'turn_on'].includes(x[1])),
+    'switch.bed_heatertrue');
+  check(`${tag}: tap does not open the callout`, await calloutInfo(page), null);
+  // Hold = callout with the rows.
+  await press(page, vp, heater, { hold: 800 });
+  await settle(page, 200);
+  let c = await calloutInfo(page);
+  check(`${tag}: hold opens the heater callout (not the device card)`, c?.id === 'm-heater' && !(await page.evaluate(() => !!window.__card._infoCard)), true);
+  check(`${tag}: callout rows: select picker, number stepper, update state only`, c && c.rows.map((r) => [r.entity, r.select, r.stepper]),
+    [['select.heater_fan', 'Low', false], ['number.heater_target', null, true], ['update.heater_fw', null, false]]);
+  check(`${tag}: callout reads upright and on screen`, !!c && c.upright && c.box[0] >= -0.5 && c.box[1] >= -0.5
+    && c.box[2] <= vp.size.width + 0.5 && c.box[3] <= vp.size.height + 0.5, true);
+  await shot(page, vp, '11-rotate-3-hold-callout');
+  // Stepper +: number.set_value one step up (70 → 71).
+  const n0 = await page.evaluate(() => window.__serviceCalls.length);
+  await tap(page, vp, await centerOf(page, '[data-entity="number.heater_target"] [data-hp="fork-callout-step-up"]'));
+  await settle(page, 120);
+  calls = await page.evaluate((n) => window.__serviceCalls.slice(n), n0);
+  check(`${tag}: stepper + sets the number one step up`, calls.map((x) => [x[0], x[1], x[2]?.entity_id, x[2]?.value]),
+    [['number', 'set_value', 'number.heater_target', 71]]);
+  // Picker: choose "High" (a native select; the option list is the OS picker).
+  const n1 = await page.evaluate(() => window.__serviceCalls.length);
+  await page.evaluate(() => {
+    const sel = window.__card.renderRoot.querySelector('[data-entity="select.heater_fan"] [data-hp="fork-callout-select"]');
+    sel.value = 'High'; sel.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await settle(page, 120);
+  calls = await page.evaluate((n) => window.__serviceCalls.slice(n), n1);
+  check(`${tag}: picker selects the option`, calls.map((x) => [x[0], x[1], x[2]?.entity_id, x[2]?.option]),
+    [['select', 'select_option', 'select.heater_fan', 'High']]);
+  await shot(page, vp, '11-rotate-4-controls');
+  await page.keyboard.press('Escape');
+  await settle(page, 100);
+  // A marker without extras keeps the device card on hold.
+  await press(page, vp, await centerOf(page, '[data-hp="device"][data-id="m-bedlamp"]'), { hold: 800 });
+  await settle(page, 150);
+  check(`${tag}: hold on a plain marker keeps the device card`, await page.evaluate(() => window.__card._infoCard?.id), 'm-bedlamp');
+  await page.evaluate(() => window.__card._closeInfoCard?.());
+  await settle(page, 100);
+  // Pan in the turned frame: the plan point under the finger follows it.
+  const anchor = await screenOfPlan(page, 0.27, 0.62);
+  const before = await state(page);
+  await press(page, vp, anchor, { to: { x: anchor.x + 40, y: anchor.y + 70 } });
+  await settle(page, 150);
+  const moved = await screenOfPlan(page, 0.27, 0.62);
+  check(`${tag}: pan follows the finger in the turned frame (±3 px)`,
+    near(moved.x, anchor.x + 40, 3) && near(moved.y, anchor.y + 70, 3), true);
+  // Pinch/wheel about a point: that plan point stays under the fingers.
+  const pc = { x: vp.size.width / 2, y: vp.size.height / 2 };
+  const planAt = await page.evaluate(([x, y]) => {
+    const svg = window.__card.renderRoot.querySelector('.plan-svg');
+    const p = new DOMPoint(x, y).matrixTransform(svg.getScreenCTM().inverse());
+    return [p.x / 1000, p.y / 1000];
+  }, [pc.x, pc.y]);
+  await pinch(page, vp, pc);
+  await settle(page, 200);
+  const after = await screenOfPlan(page, planAt[0], planAt[1]);
+  const zoomed = (await state(page)).zoom > before.zoom * 1.05;
+  check(`${tag}: pinch zooms in about the fingers (±4 px)`, zoomed && near(after.x, pc.x, 4) && near(after.y, pc.y, 4), true);
+  check(`${tag}: frame stays turned while panning/zooming`, await page.evaluate(() => window.__card._forkRot), rot);
+  await shot(page, vp, '11-rotate-5-pan-pinch');
+  // Step out unwinds the turn.
+  await tap(page, vp, await centerOf(page, '[data-hp="fork-stepout"]'));
+  await page.waitForFunction(() => !!window.__card._cameraTransition?.active, { timeout: 2000 }).catch(() => {});
+  await sleep(120);
+  await shot(page, vp, '11-rotate-6-unwinding');
+  await settle(page, 300);
+  s = await state(page);
+  check(`${tag}: step out → whole level, upright`, [s.focus, await page.evaluate(() => window.__card._forkRot)], [null, 0]);
+  await shot(page, vp, '11-rotate-7-level');
+  // The hallway (0.45 × 0.15) turns too; its stairs still lead down.
+  await tap(page, vp, await screenOfPlan(page, 0.82, 0.53));
+  await sleep(450);
+  await settle(page, 300);
+  s = await state(page);
+  check(`${tag}: tap fits the hallway`, s.focus, { kind: 'room', id: 'hall' });
+  await shot(page, vp, '11-rotate-8-hallway');
+  const stair = await centerOf(page, '[data-hp="stair"][data-id="main-down"] .hp-stair-hit');
+  await tap(page, vp, stair);
+  await settle(page, 400);
+  s = await state(page);
+  check(`${tag}: stairs tap in the turned hallway goes down, upright`,
+    [s.space, await page.evaluate(() => window.__card._forkRot)], ['lower', 0]);
+  await shot(page, vp, '11-rotate-9-stairs-lower');
+}
+
+async function scenarioFaceplate(page, vp) {
+  const tag = `${vp.key}.faceplate`;
+  // Like the live house: the faceplate's ports carry an explicit reveal rule.
+  await page.evaluate(() => window.__card._fitRegion('rack'));
+  await settle(page, 300);
+  const hidden = await page.evaluate(() => [1, 2, 3, 4, 5, 6].every((n) =>
+    window.__card.renderRoot.querySelector(`[data-hp="device"][data-id="m-port-${n}"]`)?.classList.contains('fork-hidden')));
+  check(`${tag}: ports stay hidden while the faceplate is one tap away`, hidden, true);
+  await shot(page, vp, '12-faceplate-0-rack');
+  await tap(page, vp, await screenOfPlan(page, 0.43, 0.139));
+  await sleep(450);
+  await settle(page, 300);
+  check(`${tag}: tap inside the faceplate enters it`, (await state(page)).focus, { kind: 'region', id: 'udm' });
+  const boxes = await page.evaluate(() => [1, 2, 3, 4, 5, 6].map((n) => {
+    const b = window.__card.renderRoot.querySelector(`[data-hp="device"][data-id="m-port-${n}"]`).getBoundingClientRect();
+    return [b.left, b.top, b.right, b.bottom];
+  }));
+  const overlap = boxes.some((a, i) => boxes.some((b, j) => j > i && a[0] < b[2] - 1 && b[0] < a[2] - 1 && a[1] < b[3] - 1 && b[1] < a[3] - 1));
+  check(`${tag}: ports do not stack (they step aside)`, overlap, false);
+  check(`${tag}: ports are ≥ 44 px`, boxes.every((b) => b[2] - b[0] >= 43.5), true);
+  check(`${tag}: every port is on screen (the strip wraps instead of running off)`,
+    boxes.every((b) => b[0] >= -0.5 && b[2] <= vp.size.width + 0.5 && b[1] >= -0.5 && b[3] <= vp.size.height + 0.5), true);
+  await shot(page, vp, '12-faceplate-1-entered');
+}
+
 const RUN = [
   ['stairs', scenarioStairs],
   ['levels', scenarioLevels],
@@ -873,6 +1097,8 @@ const RUN = [
   ['panel', scenarioPanel],
   ['onepane', scenarioOnePane],
   ['room', scenarioPhoneRoom],
+  ['rotate', scenarioRotate],
+  ['faceplate', scenarioFaceplate],
 ];
 
 for (const vp of VIEWPORTS) {

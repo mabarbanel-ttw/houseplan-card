@@ -2133,6 +2133,8 @@ MARKER_SCHEMA = vol.Schema(
         vol.Optional("extra_entities"): vol.Any(
             None, vol.All([vol.All(str, vol.Match(r"^[a-z0-9_]+\.[a-z0-9_]+$"))], vol.Length(max=16)),
         ),
+        # matt.3 (FORK.md §16): what a 600 ms hold opens.
+        vol.Optional("hold_action"): vol.Any("callout", "card", None),
         vol.Optional("room_id"): vol.Any(str, None),
         # Keep in sync with DISPLAY_MODES in src/logic.ts. `ripple` is no longer
         # offered, but remains accepted while old stores migrate to icon_ripple.

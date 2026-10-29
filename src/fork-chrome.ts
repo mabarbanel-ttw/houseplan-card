@@ -9,6 +9,7 @@
  */
 import { html, nothing, svg, type TemplateResult } from 'lit';
 import { repeat } from 'lit/directives/repeat.js';
+import { stepNumber, type RowControl } from './fork-marker';
 
 export type LevelNavMode = 'tabs' | 'indicator';
 export type LevelNavOrder = 'tabs' | 'reverse';
@@ -25,6 +26,8 @@ export interface ForkCardOptions {
   levelNavOrder: LevelNavOrder;
   sceneDock: SceneDockItem[];
   sceneDockCorner: SceneDockCorner;
+  /** matt.3 §15: turn the camera ±90° so a focused room fills the screen. */
+  rotateToFit: 'auto' | 'off' | 'cw' | 'ccw';
 }
 
 export const MAX_SCENE_DOCK_ITEMS = 12;
@@ -71,6 +74,8 @@ export function forkCardOptions(config: Record<string, unknown> | null | undefin
     sceneDock: normalizeDock(c.scene_dock),
     sceneDockCorner: (CORNERS as readonly string[]).includes(corner)
       ? corner as SceneDockCorner : 'bottom-left',
+    rotateToFit: c.rotate_to_fit === false || c.rotate_to_fit === 'off' ? 'off'
+      : c.rotate_to_fit === 'ccw' ? 'ccw' : c.rotate_to_fit === 'cw' ? 'cw' : 'auto',
   };
 }
 
@@ -183,11 +188,19 @@ export interface CalloutModel {
   /** matt.2 §12: script/scene buttons. */
   actions?: Array<{ entity: string; icon: string; name: string }>;
   /** matt.2 §12: extra entity rows. */
-  rows?: Array<{ entity: string; name: string; state: string; toggle: { on: boolean; available: boolean } | null }>;
+  rows?: Array<{
+    entity: string; name: string; state: string;
+    toggle: { on: boolean; available: boolean } | null;
+    /** matt.3 §16: select → option picker, number → −/+ stepper. */
+    control?: RowControl;
+  }>;
   /** Open below the marker (near the top edge) instead of above. */
   below: boolean;
   /** Room on that side (px); the card scrolls inside it. */
   maxHeight?: number;
+  /** matt.3 §15: the camera frame is turned; the card is counter-turned
+   *  about its anchor so it reads upright. */
+  unrot?: number;
 }
 
 export const CALLOUT_TOGGLE_DOMAINS = ['switch', 'light'] as const;
@@ -203,11 +216,14 @@ export function renderCallout(
   actions: {
     toggle: (entity: string) => void; more: (entity: string) => void; close: () => void;
     run?: (entity: string) => void;
+    /** matt.3 §16: set a select option / number value. */
+    set?: (entity: string, value: string | number) => void;
   },
 ): TemplateResult {
-  return html`<div class="fork-callout ${model.below ? 'below' : 'above'} ${model.on ? 'on' : ''} ${model.inactive ? 'inactive' : ''}"
+  const turned = !!model.unrot;
+  const card = html`<div class="fork-callout ${model.below ? 'below' : 'above'} ${model.on ? 'on' : ''} ${model.inactive ? 'inactive' : ''} ${turned ? 'turned' : ''}"
     data-hp="fork-callout" data-id=${model.id} data-scene-surface role="dialog" aria-label=${model.name}
-    style="left:calc(${model.left}% + ${model.shift}px);top:${model.top}%;--fork-beak:${-model.shift}px;${model.maxHeight ? `max-height:${model.maxHeight}px` : ''}"
+    style="${turned ? `left:${model.shift}px;top:0` : `left:calc(${model.left}% + ${model.shift}px);top:${model.top}%`};--fork-beak:${-model.shift}px;${model.maxHeight ? `max-height:${model.maxHeight}px` : ''}"
     @pointerdown=${(event: Event) => event.stopPropagation()}
     @click=${(event: Event) => event.stopPropagation()}>
     <div class="fork-callout-head">
@@ -232,18 +248,50 @@ export function renderCallout(
           @click=${() => actions.more(model.more!)}><ha-icon icon="mdi:dots-horizontal"></ha-icon></button>` : nothing}
     </div>` : nothing}
     ${model.rows?.length ? html`<div class="fork-callout-rows">${model.rows.map((row) => html`<div
-        class="fork-callout-row" data-hp="fork-callout-row" data-entity=${row.entity}>
+        class="fork-callout-row ${row.control && row.control.kind !== 'toggle' ? `has-${row.control.kind}` : ''}" data-hp="fork-callout-row" data-entity=${row.entity}>
         <span class="fork-callout-row-name">${row.name}</span>
-        <span class="fork-callout-row-state">${row.state}</span>
+        ${row.control?.kind === 'select' ? nothing : html`<span class="fork-callout-row-state">${row.state}</span>`}
         ${row.toggle ? html`<button type="button" role="switch" class="fork-callout-toggle small ${row.toggle.on ? 'on' : ''}"
           data-hp="fork-callout-row-toggle" aria-checked=${row.toggle.on ? 'true' : 'false'} aria-label=${row.name}
           ?disabled=${!row.toggle.available} @click=${() => actions.toggle(row.entity)}><i></i></button>` : nothing}
+        ${renderRowControl(row.entity, row.name, row.control ?? null, actions.set)}
       </div>`)}</div>` : nothing}
     ${model.actions?.length ? html`<div class="fork-callout-run" role="toolbar">${model.actions.map((item) => html`<button
         type="button" class="fork-callout-run-btn" data-hp="fork-callout-action" data-entity=${item.entity}
         aria-label=${item.name || item.entity} title=${item.name || item.entity}
         @click=${() => actions.run?.(item.entity)}><ha-icon icon=${item.icon}></ha-icon></button>`)}</div>` : nothing}
   </div>`;
+  // Turned camera: a zero-size anchor at the marker, counter-rotated, holds
+  // the card in screen orientation (its own offsets stay in screen px).
+  return turned
+    ? html`<div class="fork-callout-anchor" style="left:${model.left}%;top:${model.top}%;rotate:${model.unrot}deg">${card}</div>`
+    : card;
+}
+
+/** matt.3 §16: select → option picker, number → −/+ stepper; else nothing. */
+function renderRowControl(
+  entity: string, name: string, control: RowControl,
+  set: ((entity: string, value: string | number) => void) | undefined,
+): TemplateResult | typeof nothing {
+  if (!control || control.kind === 'toggle' || !set) return nothing;
+  if (control.kind === 'select') {
+    return html`<select class="fork-callout-select" data-hp="fork-callout-select" aria-label=${name}
+      ?disabled=${!control.available}
+      @change=${(event: Event) => set(entity, (event.target as HTMLSelectElement).value)}>
+      ${control.options.includes(control.current) ? nothing : html`<option value="" selected disabled>—</option>`}
+      ${control.options.map((option) => html`<option value=${option} ?selected=${option === control.current}>${option}</option>`)}
+    </select>`;
+  }
+  const down = stepNumber(control.value, -1, control.min, control.max, control.step);
+  const up = stepNumber(control.value, 1, control.min, control.max, control.step);
+  return html`<span class="fork-callout-stepper" data-hp="fork-callout-stepper" role="group" aria-label=${name}>
+    <button type="button" class="fork-callout-step" data-hp="fork-callout-step-down" aria-label="−"
+      ?disabled=${!control.available || down === control.value}
+      @click=${() => set(entity, down)}><ha-icon icon="mdi:minus"></ha-icon></button>
+    <button type="button" class="fork-callout-step" data-hp="fork-callout-step-up" aria-label="+"
+      ?disabled=${!control.available || up === control.value}
+      @click=${() => set(entity, up)}><ha-icon icon="mdi:plus"></ha-icon></button>
+  </span>`;
 }
 
 // ---------------------------------------------------------------- matt.2 room sheet

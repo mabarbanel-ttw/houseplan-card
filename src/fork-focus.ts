@@ -403,6 +403,12 @@ const innermostOffPath = (
   return best;
 };
 
+/** The region's parent (room, region, or the level) is where the camera is. */
+const oneTapAway = (region: FocusRegion, ctx: RevealContext): boolean => {
+  const parent = focusParent({ kind: 'region', id: region.id }, ctx.regions);
+  return !parent ? ctx.path.size === 0 : ctx.path.has(`${parent.kind}:${parent.id}`);
+};
+
 /**
  * Is a marker / decor item visible at the current fly-in position and zoom?
  *
@@ -431,7 +437,13 @@ export function revealShown(
   if (rule?.kind === 'region') {
     const region = ctx.regions.find((item) => item.id === rule.id);
     if (!region) return true;
-    return ctx.path.has(`region:${region.id}`) || regionFraction(region, ctx) >= REVEAL_SCREEN_FRACTION;
+    if (ctx.path.has(`region:${region.id}`)) return true;
+    // matt.3: same guard as automatic markers — a region one tap away is
+    // entered by the tap, never revealed early by zoom. On a 390 px phone the
+    // rack's 44 px-target zoom made the UDM faceplate fill ≥ 85 % of the view,
+    // its ports appeared on top of it and swallowed the tap meant to enter it.
+    if (oneTapAway(region, ctx)) return false;
+    return regionFraction(region, ctx) >= REVEAL_SCREEN_FRACTION;
   }
   if (!Number.isFinite(point[0]) || !Number.isFinite(point[1])) return true;
   if (kind === 'marker') {
@@ -440,9 +452,7 @@ export function revealShown(
       if (ctx.path.has(`region:${region.id}`) || !regionContains(region, point)) continue;
       // matt.2: a region one tap away (its parent is where you are) is entered
       // by the tap, never revealed early by zoom — its markers would cover it.
-      const parent = focusParent({ kind: 'region', id: region.id }, ctx.regions);
-      const oneTapAway = !parent ? ctx.path.size === 0 : ctx.path.has(`${parent.kind}:${parent.id}`);
-      if (oneTapAway || regionFraction(region, ctx) < REVEAL_SCREEN_FRACTION) return false;
+      if (oneTapAway(region, ctx) || regionFraction(region, ctx) < REVEAL_SCREEN_FRACTION) return false;
     }
     return true;
   }
@@ -479,6 +489,8 @@ export interface RegionZoomInput {
   stageHeight: number;
   insets: StageInsets;
   safeFraction: number;
+  /** matt.3: false = never fit a wide region by its height (turned frame). */
+  cover?: boolean;
   /** Zoom of the parent position (room or parent region), 0 when none. */
   parentZoom: number;
   /** Zoom at which the smallest interactive marker inside reaches 44 px, 0 when none. */
@@ -508,7 +520,9 @@ export function regionZoom(input: RegionZoomInput): number {
   // Only a region WIDER than the free stage (a faceplate on a portrait iPad)
   // is fitted by its height; a tall region keeps "fit whole" so its top and
   // bottom (e.g. the faceplate at the top of a rack) stay on screen.
-  const byHeight = zW < zH ? zH : contain;
+  // matt.3 §15: a turned frame already lays the wide region along the long
+  // screen axis — fit it whole (`cover: false`).
+  const byHeight = input.cover !== false && zW < zH ? zH : contain;
   const wanted = Math.max(
     contain,
     Math.min(byHeight, contain * COVER_LIMIT),

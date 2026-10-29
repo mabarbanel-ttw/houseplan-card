@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## v1.82.0-matt.3 — 2026-10-28
+
+Fork `matt/single-pane` (see FORK.md).
+
+- Rotate to fit: a landscape room or region on a portrait screen (or the
+  reverse) turns 90° to fill it; markers, labels and the callout stay upright;
+  the turn animates with the fly-in and unwinds on step out / Fit all.
+  `rotate_to_fit: auto | cw | ccw | off`. (§15)
+- Hold a device = its callout (when it has `actions`/`extra_entities`, or
+  `hold_action: "callout"`); tap stays control. Callout rows get a select
+  picker and a −/+ number stepper. (§16)
+- No marker covers another, at the whole level and in every fly-in: markers
+  step aside, faceplate ports become an even on-screen strip. (§17)
+- Fix: the faceplate of a rack could not be entered on a 390 px phone (its
+  ports were revealed by zoom and took the tap). Fly-ins no longer balloon
+  touch-sized markers and labels. (matt.3 fixes)
+
 ## v1.82.0-matt.2 — 2026-10-28
 
 Fork `matt/single-pane` (see FORK.md).

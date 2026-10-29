@@ -6,6 +6,10 @@
     "additionsAreCompatible": true
   },
   "hooks": {
+    "fork-callout-select": { "elements": ["select"], "since": "1.82.0-matt.3", "audience": ["styling", "test"] },
+    "fork-callout-stepper": { "elements": ["span"], "since": "1.82.0-matt.3", "audience": ["styling", "test"] },
+    "fork-callout-step-down": { "elements": ["button"], "since": "1.82.0-matt.3", "audience": ["styling", "test"] },
+    "fork-callout-step-up": { "elements": ["button"], "since": "1.82.0-matt.3", "audience": ["styling", "test"] },
     "fork-sheet": { "elements": ["section"], "since": "1.82.0-matt.2", "audience": ["styling", "test"] },
     "fork-sheet-row": { "elements": ["button"], "since": "1.82.0-matt.2", "audience": ["styling", "test"] },
     "fork-callout-down": { "elements": ["span"], "since": "1.82.0-matt.2", "audience": ["styling", "test"] },

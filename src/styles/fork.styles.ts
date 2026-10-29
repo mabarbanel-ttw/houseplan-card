@@ -468,6 +468,43 @@ export const forkStyles = css`
   .fork-callout-run-btn:active { transform: scale(0.92); background: color-mix(in srgb, var(--fork-accent) 35%, transparent); }
   .fork-callout-run-btn ha-icon { --mdc-icon-size: 22px; line-height: 1; }
   .fork-callout:has(.fork-callout-rows, .fork-callout-run) { min-width: 220px; max-width: min(300px, 86vw); }
+  /* matt.3 §16: in-place row controls — select picker, number stepper */
+  .fork-callout-row.has-select { grid-template-columns: minmax(0, 1fr) minmax(0, auto); }
+  .fork-callout-select {
+    max-width: 150px; min-height: 36px; padding: 0 28px 0 12px; border-radius: 18px;
+    border: 1px solid var(--fork-edge); color: var(--fork-ink); font: inherit; font-weight: 600;
+    background: color-mix(in srgb, var(--fork-ink) 8%, transparent)
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23999' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E") right 6px center / 18px no-repeat;
+    -webkit-appearance: none; appearance: none; text-overflow: ellipsis; cursor: pointer;
+    touch-action: manipulation;
+  }
+  .fork-callout-select option { color: initial; }
+  .fork-callout-select:disabled { opacity: 0.4; cursor: default; }
+  .fork-callout-stepper { display: inline-flex; gap: 4px; }
+  .fork-callout-step {
+    width: 40px; height: 36px; padding: 0; border-radius: 18px;
+    border: 1px solid var(--fork-edge); background: color-mix(in srgb, var(--fork-ink) 8%, transparent);
+    color: var(--fork-ink); display: grid; place-items: center; cursor: pointer;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  }
+  .fork-callout-step:active { background: color-mix(in srgb, var(--fork-accent) 35%, transparent); }
+  .fork-callout-step:disabled { opacity: 0.35; cursor: default; }
+  .fork-callout-step ha-icon { --mdc-icon-size: 18px; line-height: 1; }
+
+  /* ---- matt.3 §15 rotate-to-fit: the camera frame (.zoomwrap) is turned;
+     everything that must read upright is counter-turned about its anchor. */
+  .zoomwrap.fork-turned { container-type: inline-size; }
+  .zoomwrap.fork-turned .dev { rotate: var(--fork-unrot, 0deg); }
+  .zoomwrap.fork-turned .roomlabel,
+  .zoomwrap.fork-turned .oplock,
+  .zoomwrap.fork-turned .vacpuck {
+    rotate: var(--fork-unrot, 0deg);
+    transform-origin: 0 0;
+  }
+  /* matt.3 §17: a marker that stepped aside keeps its label inside its slot */
+  .stage.mode-view .dev.fork-spread .fork-label { max-width: calc(var(--dev-size) * 1.27 + 4px); }
+  .fork-callout-anchor { position: absolute; width: 0; height: 0; pointer-events: none; }
+  .fork-callout.turned { width: max-content; }
 
   @keyframes fork-callout-in {
     from { opacity: 0; }
@@ -536,6 +573,13 @@ export const forkStyles = css`
     text-overflow: ellipsis;
     pointer-events: none;
     z-index: 3;
+    /* matt.3: screen-sized while a fly-in projects the marker layer */
+    transform-origin: 0 0;
+    scale: calc(1 / var(--hp-live-k, 1));
+  }
+  /* matt.3: a bottom value badge sits under the core — the name goes below it */
+  .stage.mode-view .dev:has(.device-shell.with-values.pos-bottom) .fork-label {
+    top: calc(100% + var(--dev-size) * (0.1 + 0.7875) + var(--device-shell-inset, 4px) + 3px);
   }
   .stage.mode-view .dev.fork-hl .device-shell-frame {
     box-shadow: 0 0 0 3px var(--fork-accent), 0 0 18px color-mix(in srgb, var(--fork-accent) 70%, transparent);

@@ -55,3 +55,35 @@ test('matt.2 a device-dialog save carries the fork keys it has no field for', ()
     badge_hide_when: ['0'], actions: [{ entity: 'script.a' }], extra_entities: ['fan.x'] });
   assert.deepEqual(forkMarkerCarry(null), {});
 });
+
+test('matt.3 §16 hold opens the callout for markers with extras (or hold_action), else the device card', async () => {
+  const { markerHoldAction } = await import('../test-build/fork-marker.js');
+  assert.equal(markerHoldAction({ id: 'a', binding: 'virtual' }), 'card');
+  assert.equal(markerHoldAction({ id: 'a', binding: 'virtual', extra_entities: ['select.x'] }), 'callout');
+  assert.equal(markerHoldAction({ id: 'a', binding: 'virtual', actions: [{ entity: 'script.x' }] }), 'callout');
+  assert.equal(markerHoldAction({ id: 'a', binding: 'virtual', hold_action: 'callout' }), 'callout');
+  assert.equal(markerHoldAction({ id: 'a', binding: 'virtual', extra_entities: ['select.x'], hold_action: 'card' }), 'card');
+  assert.ok(forkMarkerCarry({ id: 'a', binding: 'virtual', hold_action: 'callout' }).hold_action === 'callout');
+});
+
+test('matt.3 §16 callout row controls: select picker, number stepper, update state only', async () => {
+  const { rowControl, rowSetService, stepNumber } = await import('../test-build/fork-marker.js');
+  assert.deepEqual(rowControl('select.fan', { state: 'Low', attributes: { options: ['Low', 'High'] } }),
+    { kind: 'select', options: ['Low', 'High'], current: 'Low', available: true });
+  assert.equal(rowControl('select.fan', { state: 'unavailable', attributes: { options: ['Low'] } }).available, false);
+  assert.deepEqual(rowControl('number.t', { state: '70', attributes: { min: 50, max: 85, step: 0.5, unit_of_measurement: '°F' } }),
+    { kind: 'number', min: 50, max: 85, step: 0.5, unit: '°F', value: 70, available: true });
+  assert.equal(rowControl('update.fw', { state: 'off', attributes: {} }), null);
+  assert.equal(rowControl('sensor.x', { state: '1' }), null);
+  assert.equal(rowControl('fan.x', { state: 'on' }).kind, 'toggle');
+  // Stepper respects step, min and max, and snaps off-grid values onto the grid.
+  assert.equal(stepNumber(70, 1, 50, 85, 1), 71);
+  assert.equal(stepNumber(85, 1, 50, 85, 1), 85);
+  assert.equal(stepNumber(50, -1, 50, 85, 1), 50);
+  assert.equal(stepNumber(0.3, 1, 0, 1, 0.1), 0.4);
+  assert.equal(stepNumber(70.25, 1, 50, 85, 0.5), 70.5);
+  assert.equal(stepNumber(70.25, -1, 50, 85, 0.5), 70);
+  assert.deepEqual(rowSetService('select.fan', 'High'), { domain: 'select', service: 'select_option', data: { entity_id: 'select.fan', option: 'High' } });
+  assert.deepEqual(rowSetService('input_number.t', 71), { domain: 'input_number', service: 'set_value', data: { entity_id: 'input_number.t', value: 71 } });
+  assert.equal(rowSetService('update.fw', 1), null);
+});

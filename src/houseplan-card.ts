@@ -254,7 +254,7 @@ import {
 } from './device-face';
 import { effectiveDeviceBaseSize } from './device-marker-geometry'; import { renderZigbeeTopologyOverlay } from './zigbee-topology-overlay-bridge';
 import {
-  ModeTransitionController, viewportFromViewBox,
+  ModeTransitionController, easeTransitionProgress, viewportFromViewBox,
   type HouseplanMode, type ModeTransitionState, type ModeVisualState, type ModeViewBox,
 } from './mode-transition';
 import {
@@ -316,7 +316,12 @@ import {
   renderSceneDock, renderStepOut, sceneDockService,
   type CalloutModel, type ForkCardOptions, type SceneDockItem,
 } from './fork-chrome';
-import { badgeSuppressed, markerActions, markerExtraEntities, markerInactive, rowToggleable } from './fork-marker';
+import { badgeSuppressed, markerActions, markerExtraEntities, markerHoldAction, markerInactive, rowControl, rowSetService, rowToggleable } from './fork-marker';
+import { spreadMarkers } from './fork-spread';
+import {
+  chooseRotation, deltaToFrame, frameStyle, frameToStage, insetsToFrame, reframeView, rotFrameSize,
+  spinFrameSide, stageToFrame, type ForkRot,
+} from './fork-rotate';
 import { cleanFloorForRoom, type CleanFloorResult } from './clean-floor';
 import {
   floorGeometryKeyReader, floorPoolEntry, openingWallIndexKey, physicalBodiesKey, sunGeometryKey, wallUnionKey,
@@ -359,7 +364,7 @@ import { isoWallMaterialVars, parseCssColor } from './iso-materials'; import { I
 import { renderIsoTileShadow } from './iso-tiles';
 import { displayVersion } from './card-version';
 import { ConfigFingerprintPass } from './config-fingerprint-pass';
-const CARD_VERSION = '1.82.0-matt.2';
+const CARD_VERSION = '1.82.0-matt.3';
 const EDITOR_RETRY_ASSET = '__HOUSEPLAN_EDITOR_RETRY_ASSET__';
 const ISO_RETRY_ASSET = '__HOUSEPLAN_ISO_RETRY_ASSET__';
 const PDF_RETRY_ASSET = '__HOUSEPLAN_PDF_RETRY_ASSET__';
@@ -1179,10 +1184,32 @@ export class HouseplanCard extends LitElement {
     state.presented = presented;
     this._zoom = presented.zoom;
     this._view = { ...presented.viewBox };
+    const spin = this._forkSpin;
+    if (spin) {
+      // matt.3 §15: the angle follows the same eased clock as the camera.
+      const raw = state.phase === 'settling' || !(state.duration > 0) ? 1
+        : Math.max(0, Math.min(1, ((typeof performance !== 'undefined' ? performance.now() : Date.now()) - state.startedAt) / state.duration));
+      spin.theta = spin.from + (spin.to - spin.from) * easeTransitionProgress(raw);
+      this._forkPaintSpin();
+    }
     this._liveVp(true);
   }
 
   private _settleCameraTransition(state: CameraTransitionState): void {
+    const spin = this._forkSpin;
+    if (spin) {
+      // matt.3 §15: back from the square carrier to the exact turned frame.
+      this._forkSpinToken++;
+      this._forkSpin = null;
+      this._forkRot = spin.to;
+      this._zoom = spin.final.zoom;
+      this._view = { ...spin.final.viewBox };
+      this._cameraTransitionFit = null;
+      const persist = state.reason !== 'room'; // like the upright settle below
+      if (persist) this._saveZoom();
+      this.requestUpdate();
+      return;
+    }
     const target = this._normalizeCameraState(state.to);
     this._zoom = target.zoom;
     this._view = { ...target.viewBox };
@@ -1201,6 +1228,12 @@ export class HouseplanCard extends LitElement {
    *  before #82 the zoom commands persisted it synchronously. Keeping both on
    *  one branch is what lost the interrupted zoom. */
   private _cancelCameraTransition(commitTarget = false, keepPresented = false): void {
+    if (this._forkSpin) {
+      // matt.3 §15: an interrupted turn ends at its destination frame.
+      this._forkSettleSpin();
+      if (!keepPresented) this._zoomScaleActivity.reset();
+      return;
+    }
     const reason = this._cameraTransition.state?.reason;
     const presentedZoom = keepPresented && this._cameraTransition.active
       ? this._cameraTransition.presented?.zoom
@@ -1215,6 +1248,7 @@ export class HouseplanCard extends LitElement {
    *  short structural transition first so two controllers never write `_view`
    *  in the same frame. */
   private _prepareCameraCommand(): void {
+    this._forkSettleSpin();
     this._bootSoftCancel(); if (this._modeTransitionBusy) this._cancelModeTransition(true);
     if (this._tool === 'opening') {
       this._cursorPt = null;
@@ -1525,6 +1559,7 @@ export class HouseplanCard extends LitElement {
       this._cancelDeviceDrag();
       this._clearRoomFocus(true);
       this._focusNode = null; this._landingToken++; this._closeCallout();
+      this._forkSettleSpin(); this._forkRot = 0; // matt.3 §15: a new level starts upright
       this._resetDeviceHitState();
       this._cancelDangerConfirm();
       this._closeInfoCard(); this._openingInfo = null; this._openingInfoSpace = null;
@@ -2012,6 +2047,11 @@ export class HouseplanCard extends LitElement {
    *  survives manual pan/zoom (unlike the resize-reapply intent above) and is
    *  cleared by Fit all, a floor switch or stepping out to the level. */
   private _focusNode: FocusNode = null;
+  /** matt.3 §15: rest rotation of the camera frame (View only). */
+  private _forkRot: ForkRot = 0;
+  /** matt.3 §15: the camera is turning — a square frame turned by `theta`. */
+  private _forkSpin: { from: number; to: ForkRot; theta: number; final: CameraState } | null = null;
+  private _forkSpinToken = 0;
   /** Fork §1: cancels a pending landing when another navigation follows. */
   private _landingToken = 0;
   /** Fork §3: resize-reapply intent of a fitted focus region (like `_roomFocus`). */
@@ -6108,11 +6148,13 @@ export class HouseplanCard extends LitElement {
           on: row?.state === 'on',
           available: !!row && row.state !== 'unavailable' && row.state !== 'unknown',
         } : null,
+        // matt.3 §16: select picker / number stepper in place.
+        control: rowControl(entity, row),
       };
     });
     const toggleEntity = calloutToggleEntity(d.primary);
     const toggleState = toggleEntity ? hass?.states?.[toggleEntity] : null;
-    const pos = this._pos(d);
+    const pos = this._forkSpreadMap(view).get(d.id) ?? this._pos(d);
     const left = ((pos.x - view.x) / view.w) * 100;
     const top = ((pos.y - view.y) / view.h) * 100;
     const onLike = (value?: string) => ['on', 'open', 'playing', 'home', 'heat', 'cool'].includes(String(value || ''));
@@ -6132,22 +6174,28 @@ export class HouseplanCard extends LitElement {
       more: d.primary && this._deviceBindingActive(d) ? d.primary : null,
       left,
       top,
-      shift: (() => {
-        const width = this._stageEl?.clientWidth || 0;
-        if (!width) return 0;
-        const half = Math.min(280, width * 0.72) / 2 + 8;
-        const anchor = (left / 100) * width;
-        return Math.max(half, Math.min(width - half, anchor)) - anchor;
-      })(),
       ...(() => {
-        // round 4: open on the side with more room and never past the free stage.
+        // matt.3 §15: where the marker is ON SCREEN (the frame may be turned).
+        const W = this._stageEl?.clientWidth || 0;
         const H = this._stageEl?.clientHeight || 0;
+        const theta = this._forkTheta;
+        const [fw, fh] = this._camSize();
+        const [ax, ay] = theta
+          ? frameToStage((left / 100) * fw, (top / 100) * fh, W, H, fw, fh, theta)
+          : [(left / 100) * W, (top / 100) * H];
+        const half = Math.min(280, W * 0.72) / 2 + 8;
+        const shift = W ? Math.max(half, Math.min(W - half, ax)) - ax : 0;
+        // round 4: open on the side with more room and never past the free stage.
         const insets = this._chromeInsets();
-        const anchor = (top / 100) * H;
-        const above = anchor - insets.top - 34;
-        const below = H - insets.bottom - anchor - 34;
+        const above = ay - insets.top - 34;
+        const below = H - insets.bottom - ay - 34;
         const useBelow = below > above;
-        return { below: useBelow, maxHeight: Math.max(120, Math.floor(useBelow ? below : above)) };
+        return {
+          shift,
+          below: useBelow,
+          maxHeight: Math.max(120, Math.floor(useBelow ? below : above)),
+          unrot: theta ? -theta : 0,
+        };
       })(),
       inactive,
       actions: markerActions(d.marker).filter((item) => !!this.hass?.states?.[item.entity]),
@@ -6169,6 +6217,13 @@ export class HouseplanCard extends LitElement {
       },
       more: (entity) => { this._closeCallout(); this._openMoreInfo(entity); },
       close: () => this._closeCallout(),
+      set: (entity, value) => {
+        const call = rowSetService(entity, value);
+        if (!call) return;
+        this._startDevicePressFeedback(model.id);
+        this.hass.callService(call.domain, call.service, call.data)
+          .catch((e: any) => this._showToast(this._t('toast.error', { err: this._errText(e) })));
+      },
       run: (entity) => {
         const service = sceneDockService(entity);
         if (!service) return;
@@ -6615,6 +6670,7 @@ export class HouseplanCard extends LitElement {
   /** Apply or retarget one room command without introducing a second RAF owner. */
   private _fitRoom(roomId: string, animate = true): boolean {
     if (this._mode !== 'view') return false;
+    this._forkSettleSpin();
     this._clearPlanTapSequence();
     const space = this._spaceModel();
     const room = space?.rooms.find((item) => item.id === roomId);
@@ -6632,35 +6688,43 @@ export class HouseplanCard extends LitElement {
     this._focusNode = { kind: 'room', id: roomId };
     const stage = this._stageEl;
     if (!stage || stage.clientWidth <= 0 || stage.clientHeight <= 0) return true;
-    const base = this._baseVb();
-    const baseFit = fitView(base, stage.clientWidth / stage.clientHeight);
-    // Fork §2: identical to roomFitCameraTarget with no on-map chrome; with
-    // the level indicator/scene dock the room is fitted beside them.
-    // matt.2 (round 4): a focused room fills the free stage edge to edge.
-    const targetOf = (fitBounds: NonNullable<typeof bounds>) =>
-      this._cameraTargetFor(fitBounds, baseFit, this._mode === 'view' ? 0.96 : 0.8);
-    let target = targetOf(bounds);
-    const runtime = this._isoSceneRuntime, entries = this._renderIsoScene?.overlayFitEntries;
-    if (target && this._effectiveProjection() === 'iso' && runtime && entries?.length) {
-      const envelope = runtime.resolveIsoOverlayFitEnvelope({
-        baseBounds: bounds, entries, ownerId: room.id,
-        targetView: (fitBounds) => targetOf(fitBounds)?.viewBox ?? null });
-      if (envelope) { bounds = envelope.bounds; target = targetOf(bounds); }
-    }
-    if (!target) {
+    // matt.3 §15: a landscape room on a portrait screen (or the reverse) turns the frame.
+    const rot = this._forkRotFor(bounds);
+    const planned = this._withForkRot(rot, () => {
+      const base = this._baseVb();
+      const baseFit = fitView(base, this._stageAspect());
+      // Fork §2: identical to roomFitCameraTarget with no on-map chrome; with
+      // the level indicator/scene dock the room is fitted beside them.
+      // matt.2 (round 4): a focused room fills the free stage edge to edge.
+      const targetOf = (fitBounds: NonNullable<typeof bounds>) =>
+        this._cameraTargetFor(fitBounds, baseFit, this._mode === 'view' ? 0.96 : 0.8);
+      let target = targetOf(bounds!);
+      const runtime = this._isoSceneRuntime, entries = this._renderIsoScene?.overlayFitEntries;
+      if (target && this._effectiveProjection() === 'iso' && runtime && entries?.length) {
+        const envelope = runtime.resolveIsoOverlayFitEnvelope({
+          baseBounds: bounds!, entries, ownerId: room.id,
+          targetView: (fitBounds) => targetOf(fitBounds)?.viewBox ?? null });
+        if (envelope) { bounds = envelope.bounds; target = targetOf(bounds); }
+      }
+      if (!target) return null;
+      const clamp = roomFitClampFrame(baseFit, this._cameraState().viewBox, target.viewBox, bounds!);
+      target.viewBox = this._clampView(target.viewBox, clamp);
+      return { target, clamp };
+    });
+    if (!planned) {
       this._clearRoomFocus();
       return false;
     }
-    const current = this._cameraState();
-    const clamp = roomFitClampFrame(baseFit, current.viewBox, target.viewBox, bounds);
-    target.viewBox = this._clampView(target.viewBox, clamp);
+    const { target, clamp } = planned;
     if (animate) {
       this._prepareCameraCommand();
-      this._startCameraTransition(target, clamp, 'room', CAMERA_FIT_MS);
+      this._forkStartCamera(target, clamp, 'room', CAMERA_FIT_MS, rot);
       return true;
     }
     this._cancelCameraTransition(false);
-    if (!sameCameraState(current, target)) {
+    const current = this._cameraState();
+    if (rot !== this._forkRot || !sameCameraState(current, target)) {
+      this._forkRot = rot;
       this._zoom = target.zoom;
       this._view = { ...target.viewBox };
       this.requestUpdate();
@@ -6690,21 +6754,29 @@ export class HouseplanCard extends LitElement {
    */
   private _flyToBounds(
     bounds: { x: number; y: number; w: number; h: number }, safeFraction = 0.8, animate = true,
-    zoom?: number,
+    zoom?: number | ((rot: ForkRot) => number | undefined), rot: ForkRot = 0,
   ): boolean {
     if (this._mode !== 'view') return false;
+    this._forkSettleSpin();
     const stage = this._stageEl;
     if (!stage || stage.clientWidth <= 0 || stage.clientHeight <= 0) return false;
-    const base = this._baseVb();
-    const baseFit = fitView(base, stage.clientWidth / stage.clientHeight);
-    const target = this._cameraTargetFor(bounds, baseFit, safeFraction, zoom);
-    if (!target) return false;
-    const current = this._cameraState();
-    const clamp = roomFitClampFrame(baseFit, current.viewBox, target.viewBox, bounds);
-    target.viewBox = this._clampView(target.viewBox, clamp);
+    // matt.3 §15: the target is computed for the frame turned by `rot`.
+    const planned = this._withForkRot(rot, () => {
+      const base = this._baseVb();
+      const baseFit = fitView(base, this._stageAspect());
+      const z = typeof zoom === 'function' ? zoom(rot) : zoom;
+      const target = this._cameraTargetFor(bounds, baseFit, safeFraction, z);
+      if (!target) return null;
+      const clamp = roomFitClampFrame(baseFit, this._cameraState().viewBox, target.viewBox, bounds);
+      target.viewBox = this._clampView(target.viewBox, clamp);
+      return { target, clamp };
+    });
+    if (!planned) return false;
+    const { target, clamp } = planned;
     if (!animate) {
       this._cancelCameraTransition(false);
-      if (!sameCameraState(current, target)) {
+      if (rot !== this._forkRot || !sameCameraState(this._cameraState(), target)) {
+        this._forkRot = rot;
         this._zoom = target.zoom;
         this._view = { ...target.viewBox };
         this.requestUpdate();
@@ -6712,7 +6784,7 @@ export class HouseplanCard extends LitElement {
       return true;
     }
     this._prepareCameraCommand();
-    this._startCameraTransition(target, clamp, 'room', CAMERA_FIT_MS);
+    this._forkStartCamera(target, clamp, 'room', CAMERA_FIT_MS, rot);
     return true;
   }
 
@@ -6736,7 +6808,7 @@ export class HouseplanCard extends LitElement {
     this._focusNode = { kind: 'region', id: regionId };
     // matt.2: a region lands deeper than its parent and deep enough for
     // 44 px marker targets; what does not fit is reached by panning.
-    this._flyToBounds(bounds, 0.8, animate, this._regionZoomFor(region));
+    this._flyToBounds(bounds, 0.8, animate, () => this._regionZoomFor(region), this._forkRotFor(bounds));
     this.requestUpdate();
     return true;
   }
@@ -6747,19 +6819,36 @@ export class HouseplanCard extends LitElement {
     const space = this._spaceModel();
     if (!stage || stage.clientWidth <= 0 || stage.clientHeight <= 0 || !space || depth > 8) return undefined;
     const base = this._baseVb();
-    const baseFit = fitView(base, stage.clientWidth / stage.clientHeight);
+    // matt.3 §15: in the (possibly turned) camera frame.
+    const [camW, camH] = this._camSize();
+    const baseFit = fitView(base, camW / camH);
     const bounds = this._planRectBounds(focusRegionBounds(region, NORM_W));
     if (!bounds) return undefined;
     const regions = this._focusRegions;
     const parent = focusParent({ kind: 'region', id: region.id }, regions);
+    // matt.3 §15: the parent is judged as it is SHOWN — in its own frame
+    // (turned or not) — and carried over as screen px per plan unit.
+    const zoomOfPpu = (ppu: number): number => (ppu * baseFit.w) / camW;
+    const inFrame = (rot: ForkRot, fn: () => number): number => this._withForkRot(rot, () => {
+      const [w, h] = this._camSize();
+      const fit = fitView(base, w / h);
+      const zoom = fn();
+      return zoom > 0 ? (w * zoom) / fit.w : 0;
+    });
     let parentZoom = 0;
     if (parent?.kind === 'region') {
       const p = regions.find((item) => item.id === parent.id);
-      parentZoom = p ? this._regionZoomFor(p, depth + 1) ?? 0 : 0;
+      const pb = p ? this._planRectBounds(focusRegionBounds(p, NORM_W)) : null;
+      if (p && pb) parentZoom = zoomOfPpu(inFrame(this._forkRotFor(pb), () => this._regionZoomFor(p, depth + 1) ?? 0));
     } else if (parent?.kind === 'room') {
       const room = space.rooms.find((item) => item.id === parent.id);
       const rb = room ? this._roomFitBounds(room, space) : null;
-      parentZoom = rb ? this._cameraTargetFor(rb, baseFit, 0.8)?.zoom ?? 0 : 0;
+      if (rb) {
+        parentZoom = zoomOfPpu(inFrame(this._forkRotFor(rb), () => {
+          const [w, h] = this._camSize();
+          return this._cameraTargetFor(rb, fitView(base, w / h), 0.8)?.zoom ?? 0;
+        }));
+      }
     }
     // Interactive markers of this level: inside the region, not inside one of
     // its own (still hidden) child regions, not ghosts.
@@ -6774,11 +6863,11 @@ export class HouseplanCard extends LitElement {
       const point: [number, number] = [pos.x / NORM_W, pos.y / NORM_W];
       if (!regionContains(region, point) || nestedAway(point, path, regions)) continue;
       const scale = Number(d.marker?.size) > 0 ? Number(d.marker!.size) : 1;
-      markerZoom = Math.max(markerZoom, markerTouchZoom(devicePct, unit, scale, stage.clientWidth, baseFit.w));
+      markerZoom = Math.max(markerZoom, markerTouchZoom(devicePct, unit, scale, camW, baseFit.w));
     }
     return regionZoom({
-      bounds, baseFitW: baseFit.w, stageWidth: stage.clientWidth, stageHeight: stage.clientHeight,
-      insets: this._chromeInsets(), safeFraction: 0.8, parentZoom, markerZoom,
+      bounds, baseFitW: baseFit.w, stageWidth: camW, stageHeight: camH,
+      insets: this._frameInsets(), safeFraction: 0.8, parentZoom, markerZoom, cover: !this._forkTurn,
       minZoom: HouseplanCard.ZOOM_MIN, maxZoom: HouseplanCard.ZOOM_MAX,
     });
   }
@@ -6812,9 +6901,12 @@ export class HouseplanCard extends LitElement {
     const stage = this._stageEl;
     const view = this._view;
     if (!stage || !view) return null;
-    const rect = stage.getBoundingClientRect();
-    if (!(rect.width > 0) || !(rect.height > 0)) return null;
-    return clientToPlanNorm([clientX, clientY], rect, view, this._effectiveProjection() === 'iso', NORM_W);
+    const point = this._framePoint(clientX, clientY);
+    const [fw, fh] = this._camSize();
+    if (!point || !(fw > 0) || !(fh > 0)) return null;
+    // matt.3 §15: camera-frame pixels (the frame may be turned).
+    return clientToPlanNorm(point, { left: 0, top: 0, width: fw, height: fh }, view,
+      this._effectiveProjection() === 'iso', NORM_W);
   }
 
   /** One step out: faceplate → rack → room → whole level. */
@@ -6917,6 +7009,123 @@ export class HouseplanCard extends LitElement {
     return this._pointInRoom([pos.x, pos.y], room) ? 'in' : 'out';
   }
 
+  /**
+   * matt.3 §17: focused markers whose labelled touch boxes would stack on
+   * screen step aside (row/column around their centre, plan order kept).
+   * Result: render-unit positions of the markers that moved.
+   */
+  private _forkSpreadMemo: { key: unknown[]; map: Map<string, { x: number; y: number }>; labelsOff?: boolean } | null = null;
+  /** matt.3 §17: names are dropped when the focused room is too full to show them without covering. */
+  private _forkLabelsOff(view: { x: number; y: number; w: number; h: number }): boolean {
+    this._forkSpreadMap(view);
+    return !!this._forkSpreadMemo?.labelsOff;
+  }
+  private _forkSpreadMap(view: { x: number; y: number; w: number; h: number }): Map<string, { x: number; y: number }> {
+    const empty = new Map<string, { x: number; y: number }>();
+    const stage = this._stageEl;
+    if (this._mode !== 'view' || !stage || this._effectiveProjection() === 'iso'
+        || (this._config as any)?.focus_spread === false) { this._forkSpreadMemo = null; return empty; }
+    const W = stage.clientWidth, H = stage.clientHeight;
+    const theta = this._forkTheta;
+    const [fw, fh] = this._camSize();
+    const key = [view.x, view.y, view.w, view.h, this._focusNode, this._renderDevices, W, H, theta, this._config, this._curSpaceCfg];
+    const memo = this._forkSpreadMemo;
+    if (memo && memo.key.length === key.length && memo.key.every((value, i) => value === key[i])) return memo.map;
+    const space = this._spaceModel();
+    if (!space || !(fw > 0) || !(fh > 0) || !(view.w > 0)) { this._forkSpreadMemo = null; return empty; }
+    const cfgSize = this._config?.icon_size ?? 2.5;
+    const iconPct = cfgSize > 8 ? 2.5 : cfgSize;
+    const k = this._kioskScale.icon || 1;
+    const basis = this._iconViewWidth(view);
+    const basePx = (iconCqw(effectiveDeviceBaseSize(iconPct), space, basis, k) * fw) / 100;
+    // matt.3: also at the whole level (no focus) — no marker covers another.
+    const focused = !!this._focusNode;
+    const labels = focused && (this._config as any)?.focus_labels !== false;
+    // Each marker's screen box: core/shell, a value pill, its name label.
+    const points: { id: string; x: number; y: number; w: number; h: number; bw: number; bh: number }[] = [];
+    for (const d of this._renderDevices) {
+      if (d.space !== this._space || d.hidden) continue;
+      const pos = this._pos(d);
+      if (this._forkInFocus(d, pos) !== (focused ? 'in' : null)) continue;
+      if (/\bfork-(hidden|nested)\b/.test(this._forkMarkerClass(d, pos))) continue;
+      const fx = ((pos.x - view.x) / view.w) * fw, fy = ((pos.y - view.y) / view.h) * fh;
+      const [sx, sy] = theta ? frameToStage(fx, fy, W, H, fw, fh, theta) : [fx, fy];
+      const off = sx < 0 || sy < 0 || sx > W || sy > H;
+      // off screen: never pulled in — except the markers of a focused region
+      // (the faceplate you entered shows all its ports; see `lines` below)
+      if (off && !this._forkFocusRegion()) continue;
+      const scale = Number(d.marker?.size) > 0 ? Number(d.marker!.size) : 1;
+      // focused markers have the 44 px floor; whole-level markers their plan size
+      const core = focused ? Math.max(44, Math.min(200, basePx * scale)) : Math.min(200, basePx * scale);
+      let w = core * 1.27, h = core * 1.27;
+      const pres = this._devicePresentation(d);
+      const badge = pres.valueBadge;
+      if (badge?.enabled && !pres.classes.includes('presentation-ghost') && this._forkDensity() >= 1) {
+        const text = String(badge.text || '—');
+        const pill = Math.max(core * 0.79, text.length * core * 0.42 + core * 0.28);
+        // the pill hangs on ONE side of the icon centre: a symmetric box needs it on both
+        if (badge?.position === 'left' || badge?.position === 'right') w += 2 * (core * 0.1 + pill);
+        else h += core * 0.9;
+      }
+      const ghost = pres.classes.includes('presentation-ghost');
+      const bw = w + 4, bh = h + 4;
+      if (labels && !ghost) {
+        // the name hangs ~45 px below the icon centre: a symmetric box needs it twice
+        h += 40;
+        w = Math.max(w, Math.min(96, this._forkShortName(d).length * 6.5 + 12) * 0.85);
+      }
+      points.push({ id: d.id, x: sx, y: sy, w: w + 4, h: h + 4, bw, bh });
+    }
+    const insets = this._chromeInsets();
+    // A room fuller than the screen cannot show every name without covering a
+    // marker: then the names go (the §14 sheet lists them) and only icons spread.
+    const free = Math.max(1, (W - insets.left - insets.right) * (H - insets.top - insets.bottom));
+    const labelsOff = labels && points.reduce((sum, p) => sum + p.w * p.h, 0) > free * 0.4;
+    if (labelsOff) for (const p of points) { p.w = p.bw; p.h = p.bh; }
+    // Regions one tap away stay clear, so their tap is never taken by a marker.
+    const toScreen = (x: number, y: number): [number, number] => {
+      const fx = ((x - view.x) / view.w) * fw, fy = ((y - view.y) / view.h) * fh;
+      return theta ? frameToStage(fx, fy, W, H, fw, fh, theta) : [fx, fy];
+    };
+    const obstacles = focusChildren(this._focusNode, this._focusRegions).map((r) => {
+      const c = [toScreen(r.x * NORM_W, r.y * NORM_W), toScreen((r.x + r.w) * NORM_W, (r.y + r.h) * NORM_W)];
+      return { left: Math.min(c[0][0], c[1][0]), right: Math.max(c[0][0], c[1][0]), top: Math.min(c[0][1], c[1][1]), bottom: Math.max(c[0][1], c[1][1]) };
+    });
+    // A focused region whose row of markers runs off the screen (a faceplate
+    // wider than a phone) lays that row out as an on-screen strip.
+    const lines: string[][] = [];
+    const bx = { left: insets.left + 4, right: W - insets.right - 4, top: insets.top + 4, bottom: H - insets.bottom - 4 };
+    if (this._forkFocusRegion() && points.length > 1) {
+      const xs = points.map((p) => p.x), ys = points.map((p) => p.y);
+      const byRow = Math.max(...xs) - Math.min(...xs) >= Math.max(...ys) - Math.min(...ys);
+      const sorted = [...points].sort((a, b) => (byRow ? a.y - b.y : a.x - b.x));
+      let band: typeof points = [];
+      const flush = (): void => {
+        const outside = band.some((p) => p.x < bx.left || p.x > bx.right || p.y < bx.top || p.y > bx.bottom);
+        if (band.length > 1 && outside) lines.push(band.map((p) => p.id));
+        band = [];
+      };
+      for (const p of sorted) {
+        const ref = band.length ? band.reduce((sum, q) => sum + (byRow ? q.y : q.x), 0) / band.length : null;
+        if (ref !== null && Math.abs((byRow ? p.y : p.x) - ref) > (byRow ? p.h : p.w) * 0.25) flush();
+        band.push(p);
+      }
+      flush();
+    }
+    const kept = points.filter((p) => !(p.x < 0 || p.y < 0 || p.x > W || p.y > H) || lines.some((l) => l.includes(p.id)));
+    const moved = spreadMarkers({
+      points: kept, obstacles, lines, gapX: 60, gapY: 80,
+      bounds: { left: insets.left + 4, top: insets.top + 4, right: W - insets.right - 4, bottom: H - insets.bottom - 4 },
+    });
+    const map = new Map<string, { x: number; y: number }>();
+    for (const [id, p] of moved) {
+      const [fx, fy] = theta ? stageToFrame(p.x, p.y, W, H, fw, fh, theta) : [p.x, p.y];
+      map.set(id, { x: view.x + (fx / fw) * view.w, y: view.y + (fy / fh) * view.h });
+    }
+    this._forkSpreadMemo = { key, map, labelsOff };
+    return map;
+  }
+
   /** matt.2: 1–2 word name painted under a focused marker (UI copy rule). */
   private _forkShortName(d: DevItem): string {
     const words = String(d.name || '').trim().split(/\s+/).filter(Boolean).slice(0, 2).join(' ');
@@ -6931,9 +7140,9 @@ export class HouseplanCard extends LitElement {
   }
 
   /**
-   * matt.2: markers inside the focused region are not held at the 8x size
-   * (they grow with the camera like upstream markers), so the region zoom that
-   * makes them 44 px touch targets actually renders them at that size.
+   * matt.2/matt.3: a focused marker is never smaller than a 44 px touch
+   * target; otherwise it keeps its plan size under the §7 8x hold (matt.3
+   * restored the hold inside regions: a 32x faceplate drew 130 px ports).
    */
   private _forkUncapStyle(d: DevItem, pos: { x: number; y: number }, view: { w: number }): string[] {
     const space = this._spaceModel();
@@ -6941,14 +7150,17 @@ export class HouseplanCard extends LitElement {
     const cfgSize = this._config?.icon_size ?? 2.5;
     const iconPct = cfgSize > 8 ? 2.5 : cfgSize;
     const k = this._kioskScale.icon || 1;
-    // Region focus: grow with the camera (no 8x hold). Room focus: as rendered.
-    const basis = this._forkFocusRegion() ? view.w : this._iconViewWidth(view);
+    // matt.3: the §7 8x hold applies inside regions too — the 44 px floor
+    // below already makes every focused marker a touch target, and without
+    // the hold a 32x faceplate drew 130 px ports that stacked on each other.
+    const basis = this._iconViewWidth(view);
     // matt.2 (round 4): a focused marker is never smaller than a 44 px target.
     const scale = Number(d.marker?.size) > 0 ? Number(d.marker!.size) : 1;
     const minPx = (44 / scale).toFixed(2);
     return [
-      `--device-base-size:max(${iconCqw(effectiveDeviceBaseSize(iconPct), space, basis, k).toFixed(3)}cqw, ${minPx}px)`,
-      `--icon-size:max(${iconCqw(iconPct, space, basis, k).toFixed(3)}cqw, ${minPx}px)`,
+      // matt.3: the floor is screen pixels, also while a fly-in projects the layer.
+      `--device-base-size:max(${iconCqw(effectiveDeviceBaseSize(iconPct), space, basis, k).toFixed(3)}cqw, calc(${minPx}px / var(--hp-live-k, 1)))`,
+      `--icon-size:max(${iconCqw(iconPct, space, basis, k).toFixed(3)}cqw, calc(${minPx}px / var(--hp-live-k, 1)))`,
     ];
   }
 
@@ -7052,10 +7264,12 @@ export class HouseplanCard extends LitElement {
   ): CameraState | null {
     const stage = this._stageEl;
     if (!stage || stage.clientWidth <= 0 || stage.clientHeight <= 0) return null;
+    // matt.3 §15: camera-frame size and frame-side chrome insets.
+    const [camW, camH] = this._camSize();
     return insetCameraTarget({
       bounds, baseFit,
-      stageWidth: stage.clientWidth, stageHeight: stage.clientHeight,
-      insets: this._chromeInsets(),
+      stageWidth: camW, stageHeight: camH,
+      insets: this._frameInsets(),
       minZoom: HouseplanCard.ZOOM_MIN, maxZoom: HouseplanCard.ZOOM_MAX,
       safeFraction, zoom,
     });
@@ -7284,7 +7498,9 @@ export class HouseplanCard extends LitElement {
     const f = { x: base[0], y: base[1], w: base[2], h: base[3] };
     const gone = f.x + f.w <= v.x || f.x >= v.x + v.w || f.y + f.h <= v.y || f.y >= v.y + v.h;
     if (!gone) return nothing;
-    const ang = Math.atan2((f.y + f.h / 2) - (v.y + v.h / 2), (f.x + f.w / 2) - (v.x + v.w / 2));
+    // matt.3 §15: the frame may be turned; the arrow points on screen.
+    const ang = Math.atan2((f.y + f.h / 2) - (v.y + v.h / 2), (f.x + f.w / 2) - (v.x + v.w / 2))
+      + (this._forkTheta * Math.PI) / 180;
     const left = 50 + Math.cos(ang) * 38;
     const top = 50 + Math.sin(ang) * 38;
     return html`<button class="homearrow" title=${this._t('canvas.home_tip')}
@@ -7296,8 +7512,164 @@ export class HouseplanCard extends LitElement {
 
   /** Aspect ratio of the scene (width/height, px). */
   private _stageAspect(vb = this._baseVb()): number {
+    const [w, h] = this._camSize();
+    return w > 0 && h > 0 ? w / h : vb[2] / vb[3];
+  }
+
+  /** matt.3 §15: camera-frame size (px) — the stage; swapped while turned;
+   *  a square covering the stage at every angle while the camera turns. */
+  private _camSize(): [number, number] {
     const s = this._stageEl;
-    return s && s.clientHeight ? s.clientWidth / s.clientHeight : vb[2] / vb[3];
+    const W = s?.clientWidth || 0, H = s?.clientHeight || 0;
+    if (this._forkSpin) { const d = spinFrameSide(W, H); return [d, d]; }
+    return rotFrameSize(W, H, this._forkTurn);
+  }
+
+  /** matt.3 §15: rest rotation in effect (View only). */
+  private get _forkTurn(): ForkRot { return this._mode === 'view' ? this._forkRot : 0; }
+  /** matt.3 §15: the frame's current angle (animated while turning). */
+  private get _forkTheta(): number { return this._forkSpin ? this._forkSpin.theta : this._forkTurn; }
+
+  /** matt.3 §15: client point → camera-frame px (what every camera formula expects). */
+  private _framePoint(clientX: number, clientY: number): [number, number] | null {
+    const stage = this._stageEl;
+    if (!stage) return null;
+    const r = stage.getBoundingClientRect();
+    const theta = this._forkTheta;
+    if (!theta) return [clientX - r.left, clientY - r.top];
+    const [fw, fh] = this._camSize();
+    return stageToFrame(clientX - r.left, clientY - r.top, stage.clientWidth, stage.clientHeight, fw, fh, theta);
+  }
+
+  /** matt.3 §15: chrome insets of the stage expressed for the (turned) frame. */
+  private _frameInsets(rot: number = this._forkTurn): StageInsets {
+    const insets = this._chromeInsets();
+    return rot ? insetsToFrame(insets, rot) : insets;
+  }
+
+  /** matt.3 §15: rotation direction from the card option (0 = off). */
+  private get _forkRotDirection(): ForkRot {
+    const opt = this._fork.rotateToFit;
+    if (opt === 'off' || this._effectiveProjection() === 'iso') return 0;
+    return opt === 'ccw' ? -90 : 90;
+  }
+
+  /** matt.3 §15: should a fit of `bounds` turn the frame? */
+  private _forkRotFor(bounds: { w: number; h: number }): ForkRot {
+    const stage = this._stageEl;
+    if (this._mode !== 'view' || !stage) return 0;
+    return chooseRotation({
+      bounds, stageWidth: stage.clientWidth, stageHeight: stage.clientHeight,
+      insets: this._chromeInsets(), direction: this._forkRotDirection,
+    });
+  }
+
+  /** Run `fn` as if the frame rested at `rot` (targets for a frame we are about to turn to). */
+  private _withForkRot<T>(rot: ForkRot, fn: () => T): T {
+    const saved = this._forkRot;
+    this._forkRot = rot;
+    try { return fn(); } finally { this._forkRot = saved; }
+  }
+
+  /** Same camera (centre, screen scale) in the upright frame — no visible jump
+   *  except the turn itself; used when rotation must end without a fly. */
+  private _forkUnturnNow(): void {
+    this._forkSettleSpin();
+    if (!this._forkRot) return;
+    const stage = this._stageEl;
+    const view = this._view;
+    const [fw] = this._mode === 'view' ? this._camSize() : rotFrameSize(stage?.clientWidth || 0, stage?.clientHeight || 0, this._forkRot);
+    this._forkRot = 0;
+    if (stage && view && fw > 0 && stage.clientWidth > 0) {
+      const next = reframeView(view, fw, stage.clientWidth, stage.clientHeight);
+      this._view = next;
+      this._zoom = fitView(this._baseVb(), stage.clientWidth / stage.clientHeight).w / next.w;
+    }
+    this.requestUpdate();
+  }
+
+  /** End a running turn at its destination (interrupt / new command). */
+  private _forkSettleSpin(): void {
+    const spin = this._forkSpin;
+    if (!spin) return;
+    this._forkSpinToken++;
+    this._forkSpin = null;
+    this._forkRot = spin.to;
+    this._cameraTransition.cancel(false);
+    this._cameraTransitionFit = null;
+    this._zoom = spin.final.zoom;
+    this._view = { ...spin.final.viewBox };
+    this.requestUpdate();
+  }
+
+  /**
+   * matt.3 §15: start a camera command whose target belongs to the frame
+   * turned by `rot`. Same rotation → the ordinary camera transition. A change
+   * of rotation flies centre, scale AND angle together in one transition: the
+   * frame becomes a square that covers the stage at every angle (same pixels
+   * on screen), the viewBox and the angle are interpolated, and the settled
+   * frame swaps back to the exact rotated size (same pixels again).
+   */
+  private _forkStartCamera(
+    target: CameraState, fit: ModeViewBox, reason: CameraTransitionReason, duration: number, rot: ForkRot,
+  ): boolean {
+    if (rot === this._forkRot || this._mode !== 'view') {
+      return this._startCameraTransition(target, fit, reason, duration);
+    }
+    const stage = this._stageEl;
+    if (!stage || stage.clientWidth <= 0 || stage.clientHeight <= 0) return false;
+    const W = stage.clientWidth, H = stage.clientHeight;
+    const from = this._forkRot;
+    if (this._reducedMotion || duration <= 0) {
+      this._cancelCameraTransition(false);
+      this._forkRot = rot;
+      this._zoom = target.zoom;
+      this._view = { ...target.viewBox };
+      this.requestUpdate();
+      return true;
+    }
+    const D = spinFrameSide(W, H);
+    const [fw0] = rotFrameSize(W, H, from);
+    const [fw1] = rotFrameSize(W, H, rot);
+    const sqFit = fitView(this._baseVb(), 1);
+    const startView = reframeView(this._cameraState().viewBox, fw0, D, D);
+    const endView = reframeView(target.viewBox, fw1, D, D);
+    this._cancelCameraTransition(false);
+    this._forkSpin = { from, to: rot, theta: from, final: { zoom: target.zoom, viewBox: { ...target.viewBox } } };
+    this._view = startView;
+    this._zoom = sqFit.w / startView.w;
+    this.requestUpdate();
+    const token = ++this._forkSpinToken;
+    void this.updateComplete.then(() => {
+      if (token !== this._forkSpinToken || !this._forkSpin) return;
+      this._activateSafeDayCycleOutline();
+      // A generous clamp: the square frame is only a carrier for the turn.
+      this._cameraTransitionFit = { x: sqFit.x - sqFit.w * 4, y: sqFit.y - sqFit.h * 4, w: sqFit.w * 9, h: sqFit.h * 9 };
+      this._cameraTransition.start(
+        { zoom: this._zoom, viewBox: { ...startView } },
+        { zoom: sqFit.w / endView.w, viewBox: endView },
+        reason, duration,
+      );
+    });
+    return true;
+  }
+
+  /** matt.3 §15: paint the frame angle directly (no Lit frame) while turning. */
+  private _forkPaintSpin(): void {
+    const wrap = this.renderRoot?.querySelector?.('.zoomwrap') as HTMLElement | null;
+    const spin = this._forkSpin;
+    if (!wrap || !spin) return;
+    wrap.style.rotate = `${spin.theta}deg`;
+    wrap.style.setProperty('--fork-unrot', `${-spin.theta}deg`);
+  }
+
+  /** matt.3 §15: inline style/class of the camera frame. */
+  private _forkFrame(): { cls: string; style: string } {
+    const theta = this._forkTheta;
+    const stage = this._stageEl;
+    if ((!theta && !this._forkSpin) || !stage) return { cls: '', style: '' };
+    const [fw, fh] = this._camSize();
+    return { cls: 'fork-turned', style: frameStyle(stage.clientWidth, stage.clientHeight, fw, fh, theta) };
   }
 
   /** Current view with a fallback to the full fit. */
@@ -7545,6 +7917,11 @@ export class HouseplanCard extends LitElement {
         this._fitRegion(this._regionIntent.regionId, false);
         return;
       }
+      // matt.3 §15: a turned frame re-decides its turn for the new stage shape.
+      const node = this._focusNode;
+      if ((this._forkRot || this._forkSpin) && node) {
+        if (node.kind === 'room' ? this._fitRoom(node.id, false) : this._fitRegion(node.id, false)) return;
+      }
       this._applyView(
         this._zoom,
         cur ? cur.x + cur.w / 2 : undefined,
@@ -7570,9 +7947,10 @@ export class HouseplanCard extends LitElement {
     // 14-16 CSS px away, while spec #82 §10 promises it stays put.
     const anchorFrom = (animated && this._cameraTransition.target)
       || this._cameraState();
+    const [camW, camH] = this._camSize(); // matt.3 §15: frame px
     const target = cameraTargetAtAnchor(
       anchorFrom, z, fit,
-      stage.clientWidth, stage.clientHeight, sx, sy,
+      camW, camH, sx, sy,
     );
     if (!target) return null;
     target.viewBox = this._clampView(target.viewBox, fit);
@@ -7602,11 +7980,12 @@ export class HouseplanCard extends LitElement {
     const stage = this._stageEl;
     if (!stage) return;
     ev.preventDefault();
-    const r = stage.getBoundingClientRect();
+    const at = this._framePoint(ev.clientX, ev.clientY);
+    if (!at) return;
     const factor = ev.deltaY < 0 ? 1.15 : 1 / 1.15;
     const baseZoom = this._cameraTransition.target?.zoom ?? this._zoom;
     const result = this._cameraTargetAt(
-      ev.clientX - r.left, ev.clientY - r.top, baseZoom * factor, true,
+      at[0], at[1], baseZoom * factor, true,
     );
     if (result) this._startCameraTransition(
       result.target, result.fit, 'wheel', CAMERA_WHEEL_MS,
@@ -7619,9 +7998,10 @@ export class HouseplanCard extends LitElement {
     const stage = this._stageEl;
     if (!stage) return;
     const baseZoom = this._cameraTransition.target?.zoom ?? this._zoom;
+    const [camW, camH] = this._camSize();
     const result = this._cameraTargetAt(
-      stage.clientWidth / 2,
-      stage.clientHeight / 2,
+      camW / 2,
+      camH / 2,
       baseZoom * (delta > 0 ? 1.4 : 1 / 1.4),
       true,
     );
@@ -7636,26 +8016,25 @@ export class HouseplanCard extends LitElement {
   private _resetZoom(reason: 'fit' | 'home' | 'double-tap' = 'fit'): void {
     this._clearRoomFocus();
     this._prepareCameraCommand();
-    const vb = this._baseVb();
-    const fit = fitView(vb, this._stageAspect());
-    const insets = this._chromeInsets();
-    if (insets.left || insets.right || insets.top || insets.bottom) {
-      // Fork §2: Fit all keeps the whole level clear of the on-map chrome.
-      const target = this._cameraTargetFor({ x: vb[0], y: vb[1], w: vb[2], h: vb[3] }, fit, 1);
-      if (target) {
-        const clamp = roomFitClampFrame(fit, this._cameraState().viewBox, target.viewBox,
-          { x: vb[0], y: vb[1], w: vb[2], h: vb[3] });
-        target.viewBox = this._clampView(target.viewBox, clamp);
-        this._startCameraTransition(target, clamp, reason, CAMERA_FIT_MS);
-        return;
+    // matt.3 §15: the whole level is always upright — a turned frame unwinds
+    // as part of this fly.
+    const planned = this._withForkRot(0, () => {
+      const vb = this._baseVb();
+      const fit = fitView(vb, this._stageAspect());
+      const insets = this._chromeInsets();
+      if (insets.left || insets.right || insets.top || insets.bottom) {
+        // Fork §2: Fit all keeps the whole level clear of the on-map chrome.
+        const target = this._cameraTargetFor({ x: vb[0], y: vb[1], w: vb[2], h: vb[3] }, fit, 1);
+        if (target) {
+          const clamp = roomFitClampFrame(fit, this._cameraState().viewBox, target.viewBox,
+            { x: vb[0], y: vb[1], w: vb[2], h: vb[3] });
+          target.viewBox = this._clampView(target.viewBox, clamp);
+          return { target, fit: clamp };
+        }
       }
-    }
-    this._startCameraTransition(
-      { zoom: 1, viewBox: { ...fit } },
-      fit,
-      reason,
-      CAMERA_FIT_MS,
-    );
+      return { target: { zoom: 1, viewBox: { ...fit } }, fit };
+    });
+    this._forkStartCamera(planned.target, planned.fit, reason, CAMERA_FIT_MS, 0);
   }
 
   /** Save the current space zoom to localStorage (view mode only). */
@@ -7668,6 +8047,8 @@ export class HouseplanCard extends LitElement {
     // fix-up and the editor 500% stayed in _zoomBySpace/LS_ZOOM for the next
     // visit to that floor. Editors do not need zoom persistence at all.
     if (this._mode !== 'view') return;
+    // matt.3 §15: a turned frame's zoom is not the level's upright zoom.
+    if (this._forkRot || this._forkSpin) return;
     this._zoomBySpace = { ...this._zoomBySpace, [this._space]: this._zoom };
     try {
       localStorage.setItem(LS_ZOOM, JSON.stringify(this._zoomBySpace));
@@ -7862,9 +8243,8 @@ export class HouseplanCard extends LitElement {
       const pts = [...this._pointers.values()];
       const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
       const scale = dist / (this._pinchStart.dist || 1);
-      const r = this._stageEl!.getBoundingClientRect();
-      const cx = (pts[0].x + pts[1].x) / 2 - r.left;
-      const cy = (pts[0].y + pts[1].y) / 2 - r.top;
+      // matt.3 §15: the pinch centre in camera-frame px.
+      const [cx, cy] = this._framePoint((pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2) ?? [0, 0];
       this._zoomAt(cx, cy, this._pinchStart.zoom * scale);
       this._viewportGestureDirty = true;
       this._markPinchZoomDirty();
@@ -7904,10 +8284,13 @@ export class HouseplanCard extends LitElement {
         const vb = this._baseVb();
         const v = this._viewOr(vb);
         const fit = fitView(vb, this._stageAspect());
+        // matt.3 §15: the finger's delta along the (turned) frame's axes.
+        const [camW, camH] = this._camSize();
+        const [fdx, fdy] = deltaToFrame(ddx, ddy, this._forkTheta);
         this._view = this._clampView(
           {
-            x: this._panStart.vx - (ddx / (stage.clientWidth || 1)) * v.w,
-            y: this._panStart.vy - (ddy / (stage.clientHeight || 1)) * v.h,
+            x: this._panStart.vx - (fdx / (camW || 1)) * v.w,
+            y: this._panStart.vy - (fdy / (camH || 1)) * v.h,
             w: v.w,
             h: v.h,
           },
@@ -8043,7 +8426,11 @@ export class HouseplanCard extends LitElement {
         this._touchClickGuard.interrupt(pointerId);
         this._holdFired = true;
         this._interruptViewGesture(pointerId, source);
-        this._infoCard = d;
+        // matt.3 §16: tap controls the device; hold opens its callout (extras,
+        // rows, actions) when it has any or `hold_action: callout`.
+        const held = this._displayDevices.find((item) => item.id === d.id && !item.hidden) ?? d;
+        if (markerHoldAction(held.marker) === 'callout') this._openCallout(held);
+        else this._infoCard = d;
       });
       return;
     }
@@ -8317,9 +8704,8 @@ export class HouseplanCard extends LitElement {
         if (contacts.length >= 2 && this._stageEl) {
           const [a, b] = contacts;
           const scale = Math.hypot(a.x - b.x, a.y - b.y) / (this._pinchStart.dist || 1);
-          const rect = this._stageEl.getBoundingClientRect();
-          this._zoomAt((a.x + b.x) / 2 - rect.left, (a.y + b.y) / 2 - rect.top,
-            this._pinchStart.zoom * scale);
+          const [px, py] = this._framePoint((a.x + b.x) / 2, (a.y + b.y) / 2) ?? [0, 0];
+          this._zoomAt(px, py, this._pinchStart.zoom * scale);
           this._viewportGestureDirty = true;
           this._markPinchZoomDirty();
         }
@@ -8528,6 +8914,8 @@ export class HouseplanCard extends LitElement {
 
   private _setMode(mode: 'view' | 'plan' | 'devices' | 'decor', animate = true, warm = false): void {
     if (mode !== 'view') this._closeCallout();
+    // matt.3 §15: editors are always upright (same centre and scale on screen).
+    if (mode !== 'view' && this._mode === 'view') this._forkUnturnNow();
     if (!warm) this._cancelPendingWarmMode();
     if (mode !== this._mode) {
       this._clearRoomFocus(true);
@@ -9401,7 +9789,7 @@ export class HouseplanCard extends LitElement {
     // as it does for every other decor stroke; the former iso constant 1 made
     // furniture several times thicker there (#649 3a).
     const furnitureScreenScale = furniturePlanScreenScale(
-      stage?.clientWidth, stage?.clientHeight, planView.w, planView.h,
+      stage ? this._camSize()[0] : undefined, stage ? this._camSize()[1] : undefined, planView.w, planView.h,
     );
     const decorShown = this._decorList.filter((sh) => onlyId === undefined || sh.id === onlyId);
     const shapes = decorShown.map((sh) => {
@@ -9967,7 +10355,7 @@ export class HouseplanCard extends LitElement {
     if (!united) return svg`` as unknown as TemplateResult;
     const stage = this._stageEl;
     const v = this._viewOr(this._baseVb());
-    const px = stage && stage.clientWidth && v.w ? stage.clientWidth / v.w : 1;
+    const px = stage && stage.clientWidth && v.w ? this._camSize()[0] / v.w : 1;
     const stroke = disp?.color || '#607d8b';
     // Two independent ways for hatching to become noise: a body too thin to
     // hold stripes, and stripes too close to tell apart (#230 §8.4).
@@ -11398,7 +11786,7 @@ export class HouseplanCard extends LitElement {
     // A hair on SCREEN, so an edge stays a hairline at any zoom instead of
     // turning into a smear when the plan is enlarged.
     const perUnit = this._stageEl?.clientWidth && view.w
-      ? this._stageEl.clientWidth / view.w
+      ? this._camSize()[0] / view.w
       : 1;
     // #396: the freeze must key on "the camera is moving", not on the two
     // gesture flags. An animated transition sets neither, so every tween frame
@@ -11713,6 +12101,7 @@ export class HouseplanCard extends LitElement {
     );
     const transitionStageBg = modeVisual?.stageColor || stageBg;
     const transitionBrightness = modeVisual?.sceneBrightness ?? 1;
+    const forkFrame = this._forkFrame(); // matt.3 §15: turned camera frame
     // View owns the eager hatch: one pattern at every zoom (#689 reverted #685's gradient).
     const hatchStep = wallHatchStepUnits(this._cellCm);
     const stripe = 2 * (hatchStep / HATCH_BASE_STEP_UNITS);
@@ -11862,9 +12251,9 @@ export class HouseplanCard extends LitElement {
           ${moonLayer(this, this._sunGlobal(), this._moonSkyState(), dayCycleWeight)}
           ${this._editorRuntime ? this._renderEditorSecondary() : nothing}
           ${this._ledEditor?.chrome() ?? nothing}
-          <div class="zoomwrap ${this._slide ? 'slide-' + this._slide : ''}"
+          <div class="zoomwrap ${this._slide ? 'slide-' + this._slide : ''} ${forkFrame.cls}"
             ?inert=${this._continuity.overlayBlocksInteraction || this._modeTransitionBusy}
-            style="${transitionBrightness !== 1 ? `filter:brightness(${transitionBrightness.toFixed(3)})` : ''}">
+            style="${transitionBrightness !== 1 ? `filter:brightness(${transitionBrightness.toFixed(3)});` : ''}${forkFrame.style}">
           ${iso && isoLayers?.structural ? svg`<svg class="iso-underlay-svg" data-hp-live-viewbox="camera"
               viewBox="${view.x} ${view.y} ${view.w} ${view.h}"
               preserveAspectRatio="xMidYMid meet" aria-hidden="true" pointer-events="none">
@@ -12797,9 +13186,12 @@ export class HouseplanCard extends LitElement {
     ghost = false,
   ): TemplateResult {
     const pos = this._pos(d);
+    // matt.3 §17: a focused marker that would stack steps aside.
+    const spread = ghost || isoPlacement ? undefined : this._forkSpreadMap(view).get(d.id);
     const point = isoPlacement?.visualScene ?? [pos.x, pos.y];
-    const left = ((point[0] - view.x) / view.w) * 100;
-    const top = ((point[1] - view.y) / view.h) * 100;
+    const anchor = spread ? [spread.x, spread.y] : point;
+    const left = ((anchor[0] - view.x) / view.w) * 100;
+    const top = ((anchor[1] - view.y) / view.h) * 100;
     const presentation = this._devicePresentation(d, showLqi);
     const st = [`left:${left}%`, `top:${top}%`, ...deviceFaceStyle(presentation), ...this._forkUncapStyle(d, pos, view)];
     const floorLight = this._isoLightFloors?.has(isoPlacement?.owner?.id ?? (this._isoLightFloors.size ? this._spaceModel()?.rooms.find((r) => this._pointInRoom([pos.x, pos.y], r))?.id : '') ?? '') ? 'iso-floor-light' : '';
@@ -12844,7 +13236,7 @@ export class HouseplanCard extends LitElement {
       role=${interactive ? 'button' : nothing}
       tabindex=${interactive ? '0' : nothing}
       aria-label=${deviceAriaLabel}
-      class="dev ${this._forkMarkerClass(d, pos)} ${deviceThemeClass(this._renderPlanHass)} ${presentation.classes.join(' ')} ${this._selId === d.id ? 'sel' : ''} ${d.virtual ? 'virtual' : ''} ${d.hidden ? 'ghost' : ''} ${presentation.haDisabled ? 'ha-disabled' : ''} ${presentation.valueText != null ? 'valonly' : ''} ${floorLight}"
+      class="dev ${this._forkMarkerClass(d, pos)} ${spread ? 'fork-spread' : ''} ${deviceThemeClass(this._renderPlanHass)} ${presentation.classes.join(' ')} ${this._selId === d.id ? 'sel' : ''} ${d.virtual ? 'virtual' : ''} ${d.hidden ? 'ghost' : ''} ${presentation.haDisabled ? 'ha-disabled' : ''} ${presentation.valueText != null ? 'valonly' : ''} ${floorLight}"
       style="${st.join(';')}"
       @click=${(e: MouseEvent) => this._clickDevice(e, d)}
       @keydown=${(e: KeyboardEvent) => this._keyDevice(e, d)}
@@ -12874,7 +13266,7 @@ export class HouseplanCard extends LitElement {
       })}
       ${this._vacRouteBadge(d)}
       ${this._mode === 'view' && !presentation.classes.includes('presentation-ghost') && this._forkInFocus(d, pos) === 'in'
-        && (this._config as any)?.focus_labels !== false
+        && (this._config as any)?.focus_labels !== false && !this._forkLabelsOff(view)
         ? html`<span class="fork-label" aria-hidden="true">${this._forkShortName(d)}</span>` : nothing}
     </div>`;
   }

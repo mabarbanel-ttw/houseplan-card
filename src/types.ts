@@ -282,6 +282,10 @@ export interface Marker {
   actions?: Array<{ entity: string; icon?: string | null; name?: string | null }> | null;
   /** matt.2 §12: extra entity rows (state + toggle) in the marker's callout. */
   extra_entities?: string[] | null;
+  /** matt.3 §16: hold (600 ms) action — `callout` opens the touch callout,
+   *  `card` the upstream device card. Absent = callout when the marker has
+   *  `actions`/`extra_entities`, else the device card. */
+  hold_action?: 'callout' | 'card' | null;
 }
 
 /** One saved answer to "this exact map of this exact source lives here" (#162). */
@@ -473,4 +477,8 @@ export interface CardConfig {
   scene_dock?: Array<{ entity: string; icon?: string; name?: string } | string>;
   /** Fork §5: dock corner, default `bottom-left`. */
   scene_dock_corner?: 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right';
+  /** matt.3 (FORK.md §15): turn the camera ±90° when a focused room/region
+   *  fills the free stage better that way. `auto` (default, clockwise) | `off`
+   *  | `cw` | `ccw`. */
+  rotate_to_fit?: 'auto' | 'off' | 'cw' | 'ccw' | boolean;
 }

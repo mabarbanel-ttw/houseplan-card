@@ -102,7 +102,74 @@ export function rowToggleable(entityId: string): boolean {
  *  save unchanged, so editing a marker never drops them (FORK.md §7, §11–§13). */
 export const FORK_MARKER_CARRY = [
   'reveal', 'inactive_presentation', 'hide_badge_when_inactive', 'badge_hide_when', 'actions', 'extra_entities',
+  'hold_action',
 ] as const;
+
+/** matt.3 §16: what a 600 ms hold on a View marker opens. */
+export function markerHoldAction(marker: Marker | null | undefined): 'callout' | 'card' {
+  const explicit = marker?.hold_action;
+  if (explicit === 'callout' || explicit === 'card') return explicit;
+  return markerActions(marker).length || markerExtraEntities(marker).length ? 'callout' : 'card';
+}
+
+/** matt.3 §16: the in-place control a callout row gets for its entity. */
+export type RowControl =
+  | { kind: 'toggle'; on: boolean; available: boolean }
+  | { kind: 'select'; options: string[]; current: string; available: boolean }
+  | { kind: 'number'; value: number; min: number; max: number; step: number; available: boolean; unit: string }
+  | null;
+
+const finiteOr = (value: unknown, fallback: number): number => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+export function rowControl(entityId: string, row: any): RowControl {
+  const domain = entityId.split('.')[0];
+  const available = !!row && row.state !== 'unavailable' && row.state !== 'unknown';
+  if (rowToggleable(entityId)) return { kind: 'toggle', on: row?.state === 'on', available };
+  if (domain === 'select' || domain === 'input_select') {
+    const options = Array.isArray(row?.attributes?.options)
+      ? row.attributes.options.map((o: unknown) => String(o)) : [];
+    return { kind: 'select', options, current: String(row?.state ?? ''), available: available && options.length > 0 };
+  }
+  if (domain === 'number' || domain === 'input_number') {
+    const a = row?.attributes || {};
+    const min = finiteOr(a.min, 0);
+    const max = Math.max(min, finiteOr(a.max, 100));
+    const step = finiteOr(a.step, 1) > 0 ? finiteOr(a.step, 1) : 1;
+    const value = Number(row?.state);
+    return {
+      kind: 'number', min, max, step, unit: String(a.unit_of_measurement || ''),
+      value: Number.isFinite(value) ? value : min,
+      available: available && Number.isFinite(value),
+    };
+  }
+  return null; // update.*, sensors, … : state only
+}
+
+/** Next stepper value: one `step` up/down from `value`, snapped to the step grid and clamped. */
+export function stepNumber(value: number, dir: 1 | -1, min: number, max: number, step: number): number {
+  const s = step > 0 ? step : 1;
+  const k = Math.round((value - min) / s);
+  const onGrid = Math.abs(min + k * s - value) < s * 1e-6;
+  const base = onGrid ? k + dir : (dir > 0 ? Math.ceil((value - min) / s) : Math.floor((value - min) / s));
+  const next = min + base * s;
+  const decimals = Math.min(6, Math.max(0, (String(s).split('.')[1] || '').length));
+  return Math.min(max, Math.max(min, Number(next.toFixed(decimals))));
+}
+
+/** Service call that sets a select/number row. */
+export function rowSetService(entityId: string, value: string | number): { domain: string; service: string; data: Record<string, unknown> } | null {
+  const domain = entityId.split('.')[0];
+  if (domain === 'select' || domain === 'input_select') {
+    return { domain, service: 'select_option', data: { entity_id: entityId, option: String(value) } };
+  }
+  if (domain === 'number' || domain === 'input_number') {
+    return { domain, service: 'set_value', data: { entity_id: entityId, value: Number(value) } };
+  }
+  return null;
+}
 export function forkMarkerCarry(previous: Marker | null | undefined): Partial<Marker> {
   const out: Record<string, unknown> = {};
   if (!previous) return out;

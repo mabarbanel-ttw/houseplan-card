@@ -164,6 +164,11 @@ test('fork §7 progressive disclosure: markers per region, decor one level early
   assert.equal(revealShown([0.1, 0.5], { kind: 'zoom', min: 4 }, null, 'marker', ctx(null, 1000, 4)), true);
   // Zooming by hand until the faceplate fills the view reveals its ports.
   assert.equal(revealShown(port, null, 'living', 'marker', ctx(null, 85)), true);
+  // matt.3: an explicit `region:` rule never reveals while that region is one
+  // tap away (the 390 px phone: the rack's zoom made the faceplate fill ≥ 85 %
+  // and its ports covered it) — the tap enters it instead.
+  assert.equal(revealShown(port, { kind: 'region', id: 'udm' }, 'living', 'marker', ctx({ kind: 'region', id: 'rack' }, 70)), false);
+  assert.equal(revealShown(port, { kind: 'region', id: 'udm' }, 'living', 'marker', udm), true);
   // Outside every region: always shown.
   assert.equal(revealShown([0.1, 0.5], null, 'living', 'marker', level), true);
 });

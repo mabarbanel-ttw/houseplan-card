@@ -16,7 +16,9 @@ targets · §4 touch callout · §5 scene dock · §6 "not in HA" ghost · §7
 progressive disclosure · §8 compact value badges · §9 touch fixes · §10
 everyday View chrome · §11 inactive (down) markers · §12 one marker per
 device: callout actions and extra rows · §13 no fake badges · §14 phone room
-view and room sheet · matt.2 fixes · Release.
+view and room sheet · matt.2 fixes · §15 rotate to fit (matt.3) · §16 hold
+opens the callout, in-place row controls (matt.3) · §17 markers never cover
+each other (matt.3) · matt.3 fixes · Release.
 
 UI copy rule for every fork feature: no sentences or text badges in the UI;
 state is shown visually (dimmed, dashed outline, icon); labels are at most one
@@ -545,13 +547,8 @@ unnamed markers under a large level switcher. Now:
 - Callouts open on the side of the marker with more free room and scroll
   inside it, so they never run under the toolbar, sheet or dock.
 
-**Not done: rotating the plan** for a landscape room on a portrait phone. The
-card's camera is an axis-aligned SVG viewBox shared by ~20 layers (plan SVG,
-2.5D layers, HTML marker/label/callout layers, live pan/pinch transforms,
-hit-testing, tooltips, vacuum paths, PDF export); a rotated camera means a
-rotation term in every one of those paths and in every client→plan
-conversion. It is a separate, larger change; until then such rooms are fitted
-by width and the rest is reached by panning.
+**Rotating the plan** for a landscape room on a portrait phone was deferred
+here and is done in matt.3 — see §15.
 
 **Config keys** (card YAML):
 
@@ -594,12 +591,201 @@ Verified in the demo harness under a real 56 px toolbar, `kiosk: true` and a
 docked 256 px sidebar on desktop: `node demo/fork/shots.mjs --panel`
 (`fork-shots/panel-*`).
 
+## 15. Rotate to fit (matt.3)
+
+**What.** When a focused room or focus region is landscape-shaped and the free
+map area is portrait (phones; iPad portrait when it helps) — or the reverse —
+the view turns 90° so the room fills the screen edge to edge (the §14 96 %
+room fit, minus chrome bands and safe areas). The turn is decided per fly-in:
+the room is turned when its on-screen scale turned is at least 15 % larger
+than upright (`chooseRotation`). Icons, name labels, value badges, room
+labels, lock badges, the vacuum puck and the callout stay upright; the level
+indicator, dock, step-out, sheet, menu and tooltips are screen chrome and
+never turn. The turn is part of the fly-in (centre, scale and angle are
+interpolated together on the same eased clock, `CAMERA_FIT_MS`) and unwinds
+the same way on step out to an upright target, Fit all, double-tap Fit all
+and the level glyphs. Reduced motion: the turn is instant. Stair taps, a
+level switch and entering any editor always return upright. Pan, pinch,
+wheel zoom, room and region taps, marker hit-testing and nearest-marker
+routing, stairs and the callout all work in the turned frame. A resize
+(e.g. the phone turned to landscape) re-decides the turn for the focused
+room/region.
+
+**Approach.** The camera stays what it was — an axis-aligned viewBox in the
+*camera frame*, `.zoomwrap`, the one element that holds every camera layer
+(plan SVG, 2.5D layers, marker/label/vacuum/radar/zigbee HTML layers, the
+callout layer, live pan/pinch projections). Turning means laying that frame
+out with swapped sides (stage H × W), centred on the stage, with one CSS
+`rotate: ±90deg` — so all ~20 layers turn together with no per-layer rotation
+term, and everything inside keeps its upstream maths in frame pixels. What
+needed the term is only what crosses between screen and frame:
+`_camSize()` (frame size used by every fit, zoom, pan clamp and px-per-unit
+rule), `_framePoint()` (client point → frame px: wheel, pinch centre on both
+pinch paths, focus-region taps via `_clientToPlanNorm`), `deltaToFrame`
+(pan), `_frameInsets()` (chrome bands mapped onto the turned frame's edges),
+the home arrow angle, and the callout (anchored to the marker's *screen*
+position, counter-turned about the marker so it reads upright and clamps to
+the screen). Upright content inside the frame counter-turns about its own
+anchor with the CSS `rotate` property (`--fork-unrot`): `.dev` is
+margin-centred so it turns about its centre; `.roomlabel`, `.oplock` and
+`.vacpuck` are translate-centred and turn with `transform-origin: 0 0`.
+Hit-testing needs nothing else: markers, rooms and stairs are DOM/SVG
+targets the browser hit-tests through the transform, and the device hit
+index reads screen rects. The `.zoomwrap` becomes a size container while
+turned so `cqw` marker sizes follow the frame width.
+
+The animated turn uses a square carrier frame (side = stage diagonal, so it
+covers the stage at every angle): at the start the frame swaps to the
+square with the *same* camera (centre, screen px per unit) — identical
+pixels — the controller then interpolates the square viewBox while the angle
+follows the same eased progress, and at the end the frame swaps to the exact
+turned size with the exact target — identical pixels again. One Lit frame at
+each swap; every frame between is the existing live viewport paint plus one
+`rotate` write. An interrupted turn (touch, new command, resize) ends at its
+destination frame. Fixed-pixel content in projected HTML layers (the 44 px
+marker floor and the name labels) divides by the live projection scale
+(`--hp-live-k`, set by `live-viewport.ts` on HTML camera layers only while
+projected), so fly-ins no longer balloon them until the next Lit frame — this
+also fixes the same artefact in every matt.2 fly-in.
+
+**Limits.** Only ±90° (no free rotation; a pinch never rotates). 2.5D (iso)
+never turns: an isometric scene turned 90° extrudes walls sideways — turning
+it properly means re-projecting the iso scene, which is out of scope.
+Decor *text* drawn into the plan SVG turns with the plan (it is plan
+geometry); room names are HTML labels and stay upright. The turned frame is
+View-only; the per-level saved zoom is never written while turned. While
+turning, the frame is a square of the stage diagonal (≈2.6× the pixels of a
+phone stage for ~0.4 s).
+
+**Config keys** (card YAML):
+
+```yaml
+rotate_to_fit: auto   # auto (default, clockwise) | cw | ccw | off  (false = off)
+```
+
+`auto`/`cw` turn the plan clockwise (plan "up" points to the screen's right:
+turn the phone left to read it upright); `ccw` the other way.
+
+**Files.** `src/fork-rotate.ts` (all maths: `rotFrameSize`, `stageToFrame`,
+`frameToStage`, `deltaToFrame`, `insetsToFrame`, `chooseRotation`,
+`frameStyle`, `spinFrameSide`, `reframeView`), `src/houseplan-card.ts`
+(`_forkRot`, `_forkSpin`, `_camSize`, `_framePoint`, `_frameInsets`,
+`_forkRotFor`, `_withForkRot`, `_forkStartCamera`, `_forkSettleSpin`,
+`_forkUnturnNow`, `_forkFrame`; `_fitRoom`, `_flyToBounds`, `_fitRegion`,
+`_resetZoom`, `_regionZoomFor`, `_cameraTargetFor`, pan/pinch/wheel,
+`_clientToPlanNorm`, camera-transition hooks, resize, `_setMode`,
+`_commitSpace`, `_saveZoom`, callout model), `src/live-viewport.ts`
+(`--hp-live-k`), `src/fork-chrome.ts` (`rotateToFit` option, callout anchor),
+`src/fork-focus.ts` (`regionZoom` `cover`), `src/styles/fork.styles.ts`,
+`src/types.ts`, `test/fork-rotate.test.mjs`, `demo/fork/shots.mjs`
+(`rotate` scenario).
+
+## 16. Hold opens the callout; in-place row controls (matt.3)
+
+**What.** Tap a device = control it (its `tap_action`, e.g. one-tap toggle).
+Hold (600 ms) a device = its §4 callout with the §12 extras, when the marker
+has `actions` or `extra_entities` (or `hold_action: "callout"`); markers
+without extras keep the upstream device card on hold (`hold_action: "card"`
+forces that). The callout's extra rows now carry real controls where the
+entity supports them:
+
+- `select.*` / `input_select.*` → a compact option picker (a native select:
+  the OS picker on iPhone/iPad) → `select_option`;
+- `number.*` / `input_number.*` → −/+ stepper honouring `min`, `max` and
+  `step` (off-grid values snap onto the grid) → `set_value`;
+- `switch`/`light`/`fan`/`input_boolean`/`siren`/`humidifier` keep the
+  matt.2 toggle; `update.*` and everything else show state only.
+
+So scene selects, heater target and fan speed, and the tank's mode and
+channels are settable in place, without leaving the map.
+
+**Config keys** (persisted marker field; integration schema
+`vol.Any("callout", "card", None)`; carried through device-dialog saves):
+
+```json
+{ "id": "heater", "binding": "entity:switch.heater", "tap_action": "toggle",
+  "extra_entities": ["select.heater_fan_speed", "number.heater_target", "update.heater_firmware"],
+  "hold_action": "callout" }
+```
+
+`hold_action` may be omitted: with `actions`/`extra_entities` the hold opens
+the callout anyway.
+
+**Files.** `src/fork-marker.ts` (`markerHoldAction`, `rowControl`,
+`stepNumber`, `rowSetService`, carry list), `src/fork-chrome.ts`
+(`renderRowControl`), `src/houseplan-card.ts` (hold handler in
+`_pointerDown`, callout `set` action), `src/styles/fork.styles.ts`,
+`src/types.ts`, `custom_components/houseplan/validation.py`,
+`scripts/config-schema.json` (regenerated), `docs/data-hp-contract.json`
+(`fork-callout-select`, `fork-callout-stepper`, `fork-callout-step-up`,
+`fork-callout-step-down`), `test/fork-marker.test.mjs`,
+`tests_backend/test_fork_single_pane.py`.
+
+## 17. Markers step aside instead of covering each other (matt.3)
+
+**What.** No marker covers another marker or its name label — at the whole
+level and in every room and region fly-in. Each marker is a screen box (icon
+or value pill, plus its name label when focused); where boxes overlap:
+
+- markers on one line — the ports of a faceplate — are laid out as an even
+  strip in plan order along that line, wrapping into more rows (or columns,
+  when the frame is turned) if the screen is too short; a focused region's
+  row that runs off a phone screen becomes such a strip too, so every port
+  of the faceplate you entered is on screen;
+- any other crowd steps aside by relaxation: first by at most about one
+  marker size, then — only what is still covered — further, trying the other
+  axis (a row of wall markers wider than a phone becomes two rows);
+- what relaxation cannot free (a crowd boxed in by walls, chrome and a
+  region) moves to the nearest free spot;
+- a focused room too full to show every name without covering (the boxes
+  would fill more than 40 % of the free stage — the owner's living room and
+  office on a phone) drops the name labels; the §14 sheet lists the names;
+- a marker whose value pill hangs over the screen edge moves just inside.
+
+Markers never leave the free stage (chrome bands, the §14 sheet), never move
+onto a focus region one tap away (its tap must enter the region), and
+markers that cover nothing never move. Markers inside regions are held at
+their §7 8x size again (the 44 px floor still applies): at 32x a
+faceplate's ports had grown to ~130 px each. 2.5D is unchanged. Card YAML
+`focus_spread: false` turns it off.
+
+Verified on the owner's whole house (generator output, never HA):
+`node demo/fork/live-audit.mjs <w> <h>` flies every level overview, room and
+region at 390×844, 430×932, 1024×1366, 1366×1024 and 1440×900 and fails if
+any marker icon intersects another marker's icon or name label
+(`fork-shots/live-audit/`).
+
+**Files.** `src/fork-spread.ts` (`spreadMarkers`), `src/houseplan-card.ts`
+(`_forkSpreadMap`, `_renderDevice`, callout anchor, `_forkUncapStyle`),
+`src/styles/fork.styles.ts`, `test/fork-spread.test.mjs`,
+`demo/fork/live-audit.mjs`.
+
+## matt.3 fixes (found on the live house)
+
+1. **Faceplate tap on a 390 px phone.** At the rack (18.2x on the live 390 ×
+   844 phone) the UDM faceplate filled ≥ 85 % of the view, so its ports —
+   which carry an explicit `reveal: "region:fr_faceplate"` — were revealed
+   by the "zoomed into it by hand" rule, painted on top of the faceplate and
+   took the tap meant to enter it (it opened a port callout instead; the
+   ports also stacked). Automatic markers already had the matt.2 guard "a
+   region one tap away is entered by the tap, never revealed by zoom"; the
+   explicit `region:` rule now has it too (`revealShown`). At 430 px and on
+   iPads the faceplate stayed just under 85 %, which is why only that width
+   failed. Verified with the owner's exported config in the demo harness:
+   `node demo/fork/live-faceplate.mjs 390 844` (also 430×932, 1024×1366,
+   1366×1024; `fork-shots/live/`).
+2. **Fly-in ballooning.** See §15 (`--hp-live-k`).
+3. **Name label vs bottom value badge.** A focused marker's name now sits
+   under its bottom value pill instead of over it.
+4. **Wide regions in a turned frame** are fitted whole (`regionZoom`
+   `cover: false`) — fitting them by height made sense only upright.
+
 ## Release (how `v1.82.0-matt.1` was produced)
 
 1. Versions: `package.json`, `package-lock.json` (2), `src/houseplan-card.ts`
    and `src/houseplan-editor-runtime.ts` (`CARD_VERSION`),
    `custom_components/houseplan/manifest.json`, `custom_components/houseplan/const.py`
-   → `1.82.0-matt.1` (then `1.82.0-matt.2`). `hacs.json` unchanged (`houseplan.zip`, `zip_release`).
+   → `1.82.0-matt.1` (then `1.82.0-matt.2`, `1.82.0-matt.3`). `hacs.json` unchanged (`houseplan.zip`, `zip_release`).
 2. `npm ci --ignore-scripts` (upstream git hooks are not installed in the fork),
    `npm run bundle:release` (dist + `custom_components/houseplan/frontend`),
    `node scripts/bundle-tree.mjs dist custom_components/houseplan/frontend`.
@@ -608,6 +794,13 @@ docked 256 px sidebar on desktop: `node demo/fork/shots.mjs --panel`
    13166 → ~13.75k lines, initial View graph 333 938 → ~343 kB gzip);
    `node scripts/ci-registry-inventory.mjs --write`,
    `node scripts/ci-profiles.mjs --write`.
+   matt.3: the initial View graph reached 354 227 B gzip, over upstream's
+   absolute 352 000 B wall (`INITIAL_VIEW_GZIP_BUDGET`); the fork's wall is
+   356 000 B (+1.1 %, rotation/spread/callout-control code) with its
+   10 %-rule reference at wall / 1.1 = 323 637 B (fork decision, revert by
+   restoring both constants in `scripts/bundle-budget.mjs`). New test/source
+   files must be `git add`ed before the inventory scripts run (they classify
+   tracked files only).
 4. The upstream release-ledger contract test is skipped for `-matt.N`
    versions (fork releases are not part of upstream's stable cycle).
 5. Asset build exactly like upstream `release.yml`:
