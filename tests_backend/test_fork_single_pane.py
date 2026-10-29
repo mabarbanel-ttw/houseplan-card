@@ -119,3 +119,13 @@ def test_matt3_hold_action_round_trips(hold):
 def test_matt3_hold_action_rejects_other_values(bad):
     with pytest.raises(vol.Invalid):
         v.CONFIG_SCHEMA({"spaces": [], "markers": [{"id": "m", "binding": "virtual", "hold_action": bad}]})
+
+
+def test_matt4_extra_entities_accept_label_overrides():
+    rows = ["select.lamp_scene", {"entity": "number.heater_target", "name": "Target"}, {"entity": "switch.fx"}]
+    out = v.CONFIG_SCHEMA({"spaces": [], "markers": [{"id": "m", "binding": "virtual", "extra_entities": rows}]})
+    assert out["markers"][0]["extra_entities"] == rows
+    for bad in ([{"entity": "not an id"}], [{"name": "x"}], [{"entity": "number.t", "name": ""}],
+                [{"entity": "number.t", "name": "x" * 33}]):
+        with pytest.raises(vol.Invalid):
+            v.CONFIG_SCHEMA({"spaces": [], "markers": [{"id": "m", "binding": "virtual", "extra_entities": bad}]})

@@ -281,7 +281,7 @@ export interface Marker {
   /** matt.2 §12: script/scene buttons in the marker's callout. */
   actions?: Array<{ entity: string; icon?: string | null; name?: string | null }> | null;
   /** matt.2 §12: extra entity rows (state + toggle) in the marker's callout. */
-  extra_entities?: string[] | null;
+  extra_entities?: Array<string | { entity: string; name?: string | null }> | null;
   /** matt.3 §16: hold (600 ms) action — `callout` opens the touch callout,
    *  `card` the upstream device card. Absent = callout when the marker has
    *  `actions`/`extra_entities`, else the device card. */

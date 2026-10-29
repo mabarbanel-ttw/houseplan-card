@@ -84,12 +84,51 @@ export function markerActions(marker: Marker | null | undefined): CalloutAction[
 }
 
 export function markerExtraEntities(marker: Marker | null | undefined): string[] {
-  const out: string[] = [];
+  return markerExtraRows(marker).map((row) => row.entity);
+}
+
+/** matt.4: extra rows — a plain entity id, or `{entity, name}` with a label override. */
+export function markerExtraRows(marker: Marker | null | undefined): Array<{ entity: string; name: string }> {
+  const out: Array<{ entity: string; name: string }> = [];
   for (const raw of Array.isArray(marker?.extra_entities) ? marker!.extra_entities! : []) {
-    const id = String(raw || '').trim();
-    if (ENTITY.test(id) && !out.includes(id) && out.length < MAX_EXTRA_ENTITIES) out.push(id);
+    const item = raw && typeof raw === 'object' ? raw as { entity?: unknown; name?: unknown } : { entity: raw };
+    const id = String(item.entity ?? '').trim();
+    if (!ENTITY.test(id) || out.some((row) => row.entity === id) || out.length >= MAX_EXTRA_ENTITIES) continue;
+    out.push({ entity: id, name: typeof item.name === 'string' ? item.name.trim().slice(0, 32) : '' });
   }
   return out;
+}
+
+/** matt.4: a row label is at most two words (one when two run long). */
+export function shortLabel(text: string): string {
+  const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+  if (words.length <= 1) return words[0] ?? '';
+  const two = words.slice(0, 2).join(' ');
+  return two.length > 12 ? words[0] : two;
+}
+
+/**
+ * matt.4: the label of a callout row — the entity's OWN name, never the
+ * device's: an explicit override; else the registry entity name; else the
+ * friendly name with the device-name prefix stripped (HA entity naming,
+ * "Living Room Floor Heater Target temperature" → "Target temperature");
+ * then cut to 1–2 words (UI copy rule): → "Target".
+ */
+export function rowLabel(hass: any, entityId: string, override?: string | null): string {
+  if (override && override.trim()) return override.trim();
+  const reg = hass?.entities?.[entityId];
+  const dev = reg?.device_id ? hass?.devices?.[reg.device_id] : null;
+  const deviceName = String(dev?.name_by_user || dev?.name || '').trim();
+  const strip = (text: string): string => {
+    const t = String(text || '').trim();
+    if (deviceName && t.toLowerCase().startsWith(deviceName.toLowerCase() + ' ')) return t.slice(deviceName.length + 1).trim();
+    return t;
+  };
+  const own = strip(reg?.name || '');
+  const friendly = strip(hass?.states?.[entityId]?.attributes?.friendly_name || '');
+  const fallback = entityId.split('.')[1]?.replace(/_/g, ' ') ?? entityId;
+  const name = own || friendly || fallback;
+  return shortLabel(name.charAt(0).toUpperCase() + name.slice(1));
 }
 
 /** Domains a callout row may toggle (never locks, covers, alarm panels). */

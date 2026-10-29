@@ -2130,8 +2130,15 @@ MARKER_SCHEMA = vol.Schema(
             vol.Optional("icon"): vol.Any(None, vol.All(str, vol.Length(max=64))),
             vol.Optional("name"): vol.Any(None, vol.All(str, vol.Length(max=64))),
         }, extra=vol.ALLOW_EXTRA)], vol.Length(max=12))),
+        # matt.4: an item is an entity id, or {"entity", "name"} with a 1-2 word label override.
         vol.Optional("extra_entities"): vol.Any(
-            None, vol.All([vol.All(str, vol.Match(r"^[a-z0-9_]+\.[a-z0-9_]+$"))], vol.Length(max=16)),
+            None, vol.All([vol.Any(
+                vol.All(str, vol.Match(r"^[a-z0-9_]+\.[a-z0-9_]+$")),
+                vol.Schema({
+                    vol.Required("entity"): vol.All(str, vol.Match(r"^[a-z0-9_]+\.[a-z0-9_]+$")),
+                    vol.Optional("name"): vol.Any(None, vol.All(str, vol.Length(min=1, max=32))),
+                }, extra=vol.ALLOW_EXTRA),
+            )], vol.Length(max=16)),
         ),
         # matt.3 (FORK.md §16): what a 600 ms hold opens.
         vol.Optional("hold_action"): vol.Any("callout", "card", None),

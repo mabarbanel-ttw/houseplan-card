@@ -1085,6 +1085,53 @@ async function scenarioFaceplate(page, vp) {
   await shot(page, vp, '12-faceplate-1-entered');
 }
 
+async function scenarioHoldTap(page, vp) {
+  // matt.4: hold → callout → close, several times, then step out: a room tap still flies in.
+  const tag = `${vp.key}.holdtap`;
+  await tap(page, vp, await screenOfPlan(page, 0.2, 0.7));
+  await sleep(450);
+  await settle(page, 300);
+  check(`${tag}: bedroom fly-in`, (await state(page)).focus, { kind: 'room', id: 'bed' });
+  for (const [id, round] of [['m-heater', 1], ['m-bedfan', 2], ['m-heater', 3]]) {
+    await press(page, vp, await centerOf(page, `[data-hp="device"][data-id="${id}"]`), { hold: 800 });
+    await settle(page, 150);
+    const c = await calloutInfo(page);
+    check(`${tag}: hold ${round} opens the callout`, c?.id, id);
+    if (round === 1) {
+      check(`${tag}: row labels are 1–2 words`, !!c && c.rows.length > 0
+        && (await page.evaluate(() => [...window.__card.renderRoot.querySelectorAll('.fork-callout-row-name')]
+          .every((el) => el.textContent.trim().split(/\s+/).length <= 2))), true);
+      await shot(page, vp, '13-holdtap-0-callout');
+    }
+    await page.keyboard.press('Escape');
+    await settle(page, 100);
+  }
+  check(`${tag}: no callout left`, await calloutInfo(page), null);
+  await tap(page, vp, await centerOf(page, '[data-hp="fork-stepout"]'));
+  await settle(page, 400);
+  check(`${tag}: stepped out to the level`, (await state(page)).focus, null);
+  await shot(page, vp, '13-holdtap-1-level');
+  // a spot of the kitchen floor with no marker on it (the plan tap, not a device tap)
+  const kp = await page.evaluate(() => {
+    const c = window.__card, svg = c.renderRoot.querySelector('.plan-svg'), m = svg.getScreenCTM();
+    for (let y = 0.14; y < 0.38; y += 0.02) for (let x = 0.54; x < 0.78; x += 0.02) {
+      const p = new DOMPoint(x * 1000, y * 1000).matrixTransform(m);
+      const el = c.renderRoot.elementFromPoint(p.x, p.y);
+      if (el && !el.closest('[data-hp="device"], [data-scene-surface], [data-hp="stair"], .roomlabel')) return { x: p.x, y: p.y };
+    }
+    return null;
+  });
+  if (process.env.FORK_DEBUG) console.log(tag, JSON.stringify(await page.evaluate((p) => {
+    const c = window.__card; const el = c.renderRoot.elementFromPoint(p.x, p.y);
+    return { hold: c._holdFired, sup: c._suppressClick, pointers: c._pointers.size, multi: c._touchSequenceMultitouch, el: el?.tagName + '.' + (el?.className?.baseVal ?? el?.className), room: el?.closest?.('[data-room-id]')?.dataset?.roomId };
+  }, kp)));
+  await tap(page, vp, kp);
+  await sleep(450);
+  await settle(page, 300);
+  check(`${tag}: room tap after hold-opened callouts flies in`, (await state(page)).focus, { kind: 'room', id: 'kitchen' });
+  await shot(page, vp, '13-holdtap-2-kitchen');
+}
+
 const RUN = [
   ['stairs', scenarioStairs],
   ['levels', scenarioLevels],
@@ -1099,6 +1146,7 @@ const RUN = [
   ['room', scenarioPhoneRoom],
   ['rotate', scenarioRotate],
   ['faceplate', scenarioFaceplate],
+  ['holdtap', scenarioHoldTap],
 ];
 
 for (const vp of VIEWPORTS) {

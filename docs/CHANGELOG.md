@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v1.82.0-matt.4 — 2026-10-28
+
+Fork `matt/single-pane` (see FORK.md).
+
+- Fix: after holding a device and closing its callout, room taps stopped
+  flying in. (matt.4 fixes)
+- Callout rows show the entity's own 1–2 word name ("Target", "Fan speed"),
+  never the device name; `extra_entities` items may be `{entity, name}`.
+
 ## v1.82.0-matt.3 — 2026-10-28
 
 Fork `matt/single-pane` (see FORK.md).

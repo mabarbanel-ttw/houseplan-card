@@ -18,7 +18,7 @@ everyday View chrome · §11 inactive (down) markers · §12 one marker per
 device: callout actions and extra rows · §13 no fake badges · §14 phone room
 view and room sheet · matt.2 fixes · §15 rotate to fit (matt.3) · §16 hold
 opens the callout, in-place row controls (matt.3) · §17 markers never cover
-each other (matt.3) · matt.3 fixes · Release.
+each other (matt.3) · matt.3 fixes · matt.4 fixes · Release.
 
 UI copy rule for every fork feature: no sentences or text badges in the UI;
 state is shown visually (dimmed, dashed outline, icon); labels are at most one
@@ -780,12 +780,48 @@ any marker icon intersects another marker's icon or name label
 4. **Wide regions in a turned frame** are fitted whole (`regionZoom`
    `cover: false`) — fitting them by height made sense only upright.
 
+## matt.4 fixes (found on the live house)
+
+1. **Room taps died after a hold-opened callout.** The 600 ms hold sets
+   `_holdFired` so the click that ends the hold does nothing; plan pointer-up
+   also refuses a room tap while it is set. Upstream clears it when the device
+   card closes — the matt.3 hold → callout path never did, so after holding a
+   device, closing its callout and stepping out, a tap on a room never flew
+   in (desktop and phone). Now closing the callout ends the hold, and any new
+   press on the plan (no other pointer down, not on a device) starts clean.
+   `demo/fork/shots.mjs` scenario `holdtap` (three holds → Escape → step out →
+   kitchen tap flies in) fails without the fix and passes with it.
+2. **Callout row labels are the entity's own 1–2 word name.** A row showed
+   HA's friendly name ("Living Room Floor Heater Target temperature", cut to
+   "Living …"). The label is now: a per-row override from data; else the
+   registry entity name; else the friendly name with the device-name prefix
+   stripped; then at most two words, one when two run past 12 characters
+   ("Target", "Fan speed", "Oscillation", "Auto stop", "Mode", "Pink",
+   "Bulb 1").
+
+**Config key** (persisted marker field, integration schema accepts both forms):
+
+```json
+"extra_entities": [
+  "select.living_room_floor_heater_fan_speed",
+  { "entity": "number.living_room_floor_heater_target_temperature", "name": "Target" }
+]
+```
+
+`name` is 1–32 characters (shown as is).
+
+**Files.** `src/houseplan-card.ts` (`_closeCallout`, `_stagePointerDown`,
+callout rows), `src/fork-marker.ts` (`markerExtraRows`, `rowLabel`,
+`shortLabel`), `src/types.ts`, `custom_components/houseplan/validation.py`,
+`scripts/config-schema.json`, `test/fork-marker.test.mjs`,
+`tests_backend/test_fork_single_pane.py`, `demo/fork/shots.mjs`.
+
 ## Release (how `v1.82.0-matt.1` was produced)
 
 1. Versions: `package.json`, `package-lock.json` (2), `src/houseplan-card.ts`
    and `src/houseplan-editor-runtime.ts` (`CARD_VERSION`),
    `custom_components/houseplan/manifest.json`, `custom_components/houseplan/const.py`
-   → `1.82.0-matt.1` (then `1.82.0-matt.2`, `1.82.0-matt.3`). `hacs.json` unchanged (`houseplan.zip`, `zip_release`).
+   → `1.82.0-matt.1` (then `1.82.0-matt.2`, `1.82.0-matt.3`, `1.82.0-matt.4`). `hacs.json` unchanged (`houseplan.zip`, `zip_release`).
 2. `npm ci --ignore-scripts` (upstream git hooks are not installed in the fork),
    `npm run bundle:release` (dist + `custom_components/houseplan/frontend`),
    `node scripts/bundle-tree.mjs dist custom_components/houseplan/frontend`.

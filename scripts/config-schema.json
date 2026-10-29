@@ -94,8 +94,16 @@
     },
     "config.markers[].extra_entities": {
       "list": {
-        "opaque": "Match('^[a-z0-9_]+\\\\.[a-z0-9_]+$', msg=None)",
-        "type": "str"
+        "variants": [
+          {
+            "opaque": "Match('^[a-z0-9_]+\\\\.[a-z0-9_]+$', msg=None)",
+            "type": "str"
+          },
+          {
+            "allowExtra": true,
+            "object": true
+          }
+        ]
       },
       "maxLength": 16,
       "nullable": true,

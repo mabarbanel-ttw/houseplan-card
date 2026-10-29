@@ -316,7 +316,7 @@ import {
   renderSceneDock, renderStepOut, sceneDockService,
   type CalloutModel, type ForkCardOptions, type SceneDockItem,
 } from './fork-chrome';
-import { badgeSuppressed, markerActions, markerExtraEntities, markerHoldAction, markerInactive, rowControl, rowSetService, rowToggleable } from './fork-marker';
+import { badgeSuppressed, markerActions, markerExtraRows, markerHoldAction, markerInactive, rowControl, rowLabel, rowSetService, rowToggleable } from './fork-marker';
 import { spreadMarkers } from './fork-spread';
 import {
   chooseRotation, deltaToFrame, frameStyle, frameToStage, insetsToFrame, reframeView, rotFrameSize,
@@ -364,7 +364,7 @@ import { isoWallMaterialVars, parseCssColor } from './iso-materials'; import { I
 import { renderIsoTileShadow } from './iso-tiles';
 import { displayVersion } from './card-version';
 import { ConfigFingerprintPass } from './config-fingerprint-pass';
-const CARD_VERSION = '1.82.0-matt.3';
+const CARD_VERSION = '1.82.0-matt.4';
 const EDITOR_RETRY_ASSET = '__HOUSEPLAN_EDITOR_RETRY_ASSET__';
 const ISO_RETRY_ASSET = '__HOUSEPLAN_ISO_RETRY_ASSET__';
 const PDF_RETRY_ASSET = '__HOUSEPLAN_PDF_RETRY_ASSET__';
@@ -6095,6 +6095,9 @@ export class HouseplanCard extends LitElement {
   };
 
   private _closeCallout(): void {
+    // matt.4: a hold-opened callout leaves `_holdFired` set (it only suppresses
+    // the click that ends that hold); closing the callout ends that hold.
+    this._holdFired = false;
     if (this._calloutOutside) {
       window.removeEventListener('pointerdown', this._calloutOutside, true);
       window.removeEventListener('keydown', this._calloutKey, true);
@@ -6138,11 +6141,12 @@ export class HouseplanCard extends LitElement {
     if (value && badgeSuppressed(hass, d.marker, badgeSrc?.entity_id
       ? (badgeSrc.kind === 'entity_attribute' ? hass?.states?.[badgeSrc.entity_id]?.attributes?.[badgeSrc.attribute]
         : hass?.states?.[badgeSrc.entity_id]?.state) : undefined, d.primary)) value = '';
-    const rows = markerExtraEntities(d.marker).map((entity) => {
+    const rows = markerExtraRows(d.marker).map(({ entity, name: override }) => {
       const row = this.hass?.states?.[entity] ?? hass?.states?.[entity];
       return {
         entity,
-        name: String(row?.attributes?.friendly_name || entity),
+        // matt.4: the entity's own 1–2 word name, never the device's (UI copy rule)
+        name: rowLabel(this._fullRegistryHass?.entities ? this._fullRegistryHass : this.hass, entity, override),
         state: format(row) || '—',
         toggle: rowToggleable(entity) ? {
           on: row?.state === 'on',
@@ -8101,6 +8105,12 @@ export class HouseplanCard extends LitElement {
 
   private _stagePointerDown(ev: PointerEvent): void {
     if (!sceneGestureFromPath(ev.composedPath())) return;
+    // matt.4: a new press on the plan (no other pointer down) starts a new
+    // gesture; a finished hold's click suppression must not block its room tap.
+    // A device's own pointerdown re-arms the hold first, so this never cancels it.
+    if (!this._pointers.size && !ev.composedPath().some((node) => (node as HTMLElement)?.dataset?.hp === 'device')) {
+      this._holdFired = false;
+    }
     this._bootSoftCancel();
     const roomId = ev.isPrimary && ev.button === 0 && this._mode === 'view'
       ? roomFitOwnerFromPath(ev.composedPath()) : null;

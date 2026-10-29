@@ -87,3 +87,41 @@ test('matt.3 §16 callout row controls: select picker, number stepper, update st
   assert.deepEqual(rowSetService('input_number.t', 71), { domain: 'input_number', service: 'set_value', data: { entity_id: 'input_number.t', value: 71 } });
   assert.equal(rowSetService('update.fw', 1), null);
 });
+
+test('matt.4 callout row labels: the entity\'s own 1–2 word name, never the device name', async () => {
+  const { rowLabel, shortLabel, markerExtraRows } = await import('../test-build/fork-marker.js');
+  const hass = {
+    devices: { h: { name: 'Living Room Floor Heater' }, t: { name: 'Opae Ula Tank', name_by_user: null }, b: { name: 'Brass floor lamp' } },
+    entities: {
+      'number.heater_target': { device_id: 'h', name: null },
+      'select.heater_fan': { device_id: 'h', name: 'Fan speed' },
+      'switch.heater_osc': { device_id: 'h' },
+      'switch.heater_auto_stop': { device_id: 'h' },
+      'select.tank_mode': { device_id: 't' },
+      'number.tank_pink': { device_id: 't' },
+      'light.brass_floor_lamp_1': { device_id: 'b' },
+    },
+    states: {
+      'number.heater_target': { attributes: { friendly_name: 'Living Room Floor Heater Target temperature' } },
+      'select.heater_fan': { attributes: { friendly_name: 'Living Room Floor Heater Fan speed' } },
+      'switch.heater_osc': { attributes: { friendly_name: 'Living Room Floor Heater Oscillation' } },
+      'switch.heater_auto_stop': { attributes: { friendly_name: 'Living Room Floor Heater Auto stop' } },
+      'select.tank_mode': { attributes: { friendly_name: 'Opae Ula Tank Mode' } },
+      'number.tank_pink': { attributes: { friendly_name: 'Opae Ula Tank Pink' } },
+      'light.brass_floor_lamp_1': { attributes: { friendly_name: 'Brass floor lamp Bulb 1' } },
+    },
+  };
+  assert.equal(rowLabel(hass, 'number.heater_target'), 'Target');
+  assert.equal(rowLabel(hass, 'select.heater_fan'), 'Fan speed');
+  assert.equal(rowLabel(hass, 'switch.heater_osc'), 'Oscillation');
+  assert.equal(rowLabel(hass, 'switch.heater_auto_stop'), 'Auto stop');
+  assert.equal(rowLabel(hass, 'select.tank_mode'), 'Mode');
+  assert.equal(rowLabel(hass, 'number.tank_pink'), 'Pink');
+  assert.equal(rowLabel(hass, 'light.brass_floor_lamp_1'), 'Bulb 1');
+  assert.equal(rowLabel(hass, 'number.heater_target', 'Set temp'), 'Set temp', 'a data override wins');
+  assert.equal(rowLabel({}, 'switch.lamp_fx'), 'Lamp fx', 'no registry: object id, 1–2 words');
+  assert.equal(shortLabel('Very long multi word name'), 'Very long');
+  assert.deepEqual(markerExtraRows({ id: 'm', binding: 'virtual', extra_entities: ['select.a', { entity: 'number.b', name: 'Target' }, { entity: 'bad id' }, 'select.a'] }),
+    [{ entity: 'select.a', name: '' }, { entity: 'number.b', name: 'Target' }]);
+});
+
