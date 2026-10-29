@@ -206,7 +206,9 @@ let card=null;
 if(!new URLSearchParams(location.search).has('panel-cold')){
   await import('/assets/houseplan-card.js');
   card=document.createElement('houseplan-card');
-  card.setConfig({type:'custom:houseplan-card', title:'House Plan', icon_size:3.4});
+  // Fork (FORK.md §10): upstream smokes exercise the upstream header; the fork
+  // harness (demo/fork/shots.mjs) runs with the fork's everyday chrome.
+  card.setConfig({type:'custom:houseplan-card', title:'House Plan', icon_size:3.4, fork_menu:false, level_density:'full'});
   document.getElementById('host').appendChild(card);
   card.hass=mkHass();
   window.__card=card;

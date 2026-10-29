@@ -239,7 +239,7 @@ await page.evaluate(async () => {
   const host = document.getElementById('host');
   host.replaceChildren();
   const card = document.createElement('houseplan-card');
-  card.setConfig({ type: 'custom:houseplan-card', title: 'House Plan' });
+  card.setConfig({ type: 'custom:houseplan-card', title: 'House Plan', fork_menu: false });
   host.append(card);
   card.hass = hass;
   window.__card = card;
@@ -275,7 +275,7 @@ await page.evaluate(async () => {
   const host = document.getElementById('host');
   host.replaceChildren();
   const card = document.createElement('houseplan-card');
-  card.setConfig({ type: 'custom:houseplan-card', title: 'House Plan' });
+  card.setConfig({ type: 'custom:houseplan-card', title: 'House Plan', fork_menu: false });
   host.append(card);
   card.hass = hass;
   window.__card = card;
@@ -295,7 +295,7 @@ await page.evaluate(async () => {
   const host = document.getElementById('host');
   host.replaceChildren();
   const card = document.createElement('houseplan-card');
-  card.setConfig({ type: 'custom:houseplan-card', kiosk: true });
+  card.setConfig({ type: 'custom:houseplan-card', kiosk: true, fork_menu: false });
   host.append(card);
   card.hass = window.__mkHass();
   window.__card = card;

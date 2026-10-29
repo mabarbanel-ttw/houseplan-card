@@ -15,7 +15,7 @@ export async function installBatteryFixture(page) {
       window.__setRegistryArea('entity', id, null);
     }
     card.hass = { ...card.hass, states };
-    card.setConfig({ type: 'custom:houseplan-card', title: 'Battery witness', icon_size: 5, language: 'en' });
+    card.setConfig({ type: 'custom:houseplan-card', title: 'Battery witness', icon_size: 5, language: 'en', fork_menu: false, level_density: 'full' });
     await window.__hpTest.setMode('view');
     await window.__hpTest.setServerConfig(cfg => ({ ...cfg,
       settings: { ...cfg.settings, volumetric_view: false, show_device_battery: true, moon: false },

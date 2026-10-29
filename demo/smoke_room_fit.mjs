@@ -113,8 +113,9 @@ const out = await page.evaluate(async () => {
     && syncFrames.length === 1 && syncFrames.every(Boolean);
   await waitCamera();
   const flatMargins = margins();
-  result.cleanRoomTapFits = Object.values(flatMargins).every((value) => value >= 0.099);
-  result.oneFlatAxisUsesTenPercent = Math.min(...Object.values(flatMargins)) <= 0.102;
+  // Fork (FORK.md §14): a View room fit fills 96 % of the stage (2 % margins).
+  result.cleanRoomTapFits = Object.values(flatMargins).every((value) => value >= 0.019);
+  result.oneFlatAxisUsesTenPercent = Math.min(...Object.values(flatMargins)) <= 0.022;
   result.roomIntentIsSessionOnly = c._roomFocus?.roomId === 'room-a'
     && JSON.parse(localStorage.getItem('houseplan_card_zoom_v1'))['fit-floor'] === 1;
 
@@ -269,7 +270,7 @@ const out = await page.evaluate(async () => {
   await c.updateComplete;
   const resizedMargins = margins();
   result.resizeRefitsAtomically = c._roomFocus?.roomId === 'room-a'
-    && Object.values(resizedMargins).every((value) => value >= 0.099);
+    && Object.values(resizedMargins).every((value) => value >= 0.019);
 
   c.style.width = '1000px';
   await new Promise((resolve) => setTimeout(resolve, 100));
@@ -283,8 +284,8 @@ const out = await page.evaluate(async () => {
   await waitCamera();
   const isoMargins = margins();
   result.isoUsesProjectedBounds = c._effectiveProjection() === 'iso'
-    && Object.values(isoMargins).every((value) => value >= 0.099)
-    && (c._zoom === c.constructor.ZOOM_MAX || Math.min(...Object.values(isoMargins)) <= 0.102);
+    && Object.values(isoMargins).every((value) => value >= 0.019)
+    && (c._zoom === c.constructor.ZOOM_MAX || Math.min(...Object.values(isoMargins)) <= 0.022);
 
   const kiosk = document.createElement('houseplan-card');
   kiosk.setConfig({ type: 'custom:houseplan-card', kiosk: true, cycle: 0 });
